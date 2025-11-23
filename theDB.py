@@ -81,11 +81,20 @@ CREATE TABLE IF NOT EXISTS games (
 # Ensure start_time and end_time columns exist (added later as TEXT)
 cur2 = mydb.cursor()
 cols = [r[1] for r in cur2.execute("PRAGMA table_info(games)").fetchall()]
+
 if 'start_time' not in cols:
     cur2.execute("ALTER TABLE games ADD COLUMN start_time TEXT DEFAULT '00:00'")
 if 'end_time' not in cols:
     cur2.execute("ALTER TABLE games ADD COLUMN end_time TEXT DEFAULT '00:00'")
+
+# New: ensure is_final and winner_team_id columns exist to mark finished games and winner
+cols = [r[1] for r in cur2.execute("PRAGMA table_info(games)").fetchall()]
+if 'is_final' not in cols:
+    cur2.execute("ALTER TABLE games ADD COLUMN is_final INTEGER DEFAULT 0")
+if 'winner_team_id' not in cols:
+    cur2.execute("ALTER TABLE games ADD COLUMN winner_team_id INTEGER DEFAULT NULL")
 cur2.close()
+
 cur.execute("""
 CREATE TABLE IF NOT EXISTS mvps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,6 +114,7 @@ class ScheduleManager:
     def __init__(self):
         self.mydb = mydb  # Use the global connection
         # No need for in-memory lists/dicts; data will be queried from DB as needed
+
     def addTeam(self, team):
         if isinstance(team, Team):
             cursor = self.mydb.cursor()
@@ -112,6 +122,7 @@ class ScheduleManager:
             self.mydb.commit()
             team.id = cursor.lastrowid
             cursor.close()
+
     def addVenue(self, venue):
         if isinstance(venue, Venue):
             cursor = self.mydb.cursor()
@@ -119,6 +130,7 @@ class ScheduleManager:
             self.mydb.commit()
             venue.venueID = cursor.lastrowid
             cursor.close()
+
     def displaySchedule(self):
         cursor = self.mydb.cursor()
         cursor.execute("""
@@ -134,6 +146,7 @@ class ScheduleManager:
         print("Schedule:")
         for row in results:
             print(f"Game ID: {row[0]}, {row[1]} vs {row[2]} at {row[3]} on {row[4]}, Score: {row[5]}-{row[6]}")
+
     def displayStandings(self):
         cursor = self.mydb.cursor()
         cursor.execute("""
@@ -153,6 +166,7 @@ class ScheduleManager:
         print("Standings:")
         for row in results:
             print(f"Team: {row[0]}, Wins: {row[1]}, Losses: {row[2]}, Total Points: {row[3]}")
+
     def gameResults(self, gameID):
         cursor = self.mydb.cursor()
         cursor.execute("""
@@ -175,6 +189,7 @@ class ScheduleManager:
                 'score': f"{result[5]}-{result[6]}"
             }
         return None
+
     def scheduleGame(self, home_team_id, away_team_id, venue_id, game_date):
         cursor = self.mydb.cursor()
         # Insert with optional start/end fields (use defaults if missing)
@@ -199,6 +214,56 @@ class ScheduleManager:
         cursor.execute("DELETE FROM games WHERE id = ?", (game_id,))
         self.mydb.commit()
         cursor.close()
+
+    def isGameFinal(self, game_id):
+        """Return True if the game has been marked final (ended)."""
+        cursor = self.mydb.cursor()
+        cursor.execute("SELECT is_final FROM games WHERE id = ?", (game_id,))
+        r = cursor.fetchone()
+        cursor.close()
+        return bool(r['is_final']) if r and 'is_final' in r.keys() else False
+
+    def endGame(self, game_id):
+        """
+        Mark the game as finished. Determine winner by summing player points for both teams:
+          - finds home_team_id and away_team_id from games table,
+          - sums players.points for each team,
+          - writes is_final = 1 and winner_team_id (NULL if tie)
+        Returns winner_team_id (int) or None on tie, or raises on error.
+        """
+        cursor = self.mydb.cursor()
+        cursor.execute("SELECT home_team_id, away_team_id FROM games WHERE id = ?", (game_id,))
+        row = cursor.fetchone()
+        if not row:
+            cursor.close()
+            raise ValueError("Game not found")
+
+        home_id = row['home_team_id']
+        away_id = row['away_team_id']
+
+        # Sum player points by team
+        cursor.execute("SELECT SUM(points) as s FROM players WHERE team_id = ?", (home_id,))
+        hrow = cursor.fetchone()
+        home_sum = hrow['s'] if hrow and hrow['s'] is not None else 0
+
+        cursor.execute("SELECT SUM(points) as s FROM players WHERE team_id = ?", (away_id,))
+        arow = cursor.fetchone()
+        away_sum = arow['s'] if arow and arow['s'] is not None else 0
+
+        winner = None
+        if home_sum > away_sum:
+            winner = home_id
+        elif away_sum > home_sum:
+            winner = away_id
+        else:
+            winner = None  # tie
+
+        # Persist result
+        cursor.execute("UPDATE games SET is_final = 1, winner_team_id = ? WHERE id = ?", (winner, game_id))
+        self.mydb.commit()
+        cursor.close()
+
+        return winner
 
 class Venue:
     def __init__(self, venueName, location, capacity, venueID=None):

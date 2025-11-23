@@ -56,7 +56,7 @@ def refresh_scheduled_games_table(table_frame):
     for widget in table_frame.winfo_children():
         widget.destroy()
 
-    # Header row
+    # Header row (added Status column)
     header_frame = ctk.CTkFrame(table_frame, fg_color="#1F1F1F")
     header_frame.pack(fill="x", padx=8, pady=4)
     ctk.CTkLabel(header_frame, text="Team 1", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, padx=8, pady=4, sticky="w")
@@ -64,7 +64,8 @@ def refresh_scheduled_games_table(table_frame):
     ctk.CTkLabel(header_frame, text="Venue", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=2, padx=8, pady=4, sticky="w")
     ctk.CTkLabel(header_frame, text="Date", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=3, padx=8, pady=4, sticky="w")
     ctk.CTkLabel(header_frame, text="Time", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=4, padx=8, pady=4, sticky="w")
-    ctk.CTkLabel(header_frame, text="View", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=5, padx=8, pady=4, sticky="w")
+    ctk.CTkLabel(header_frame, text="Status", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=5, padx=8, pady=4, sticky="w")
+    ctk.CTkLabel(header_frame, text="View", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=6, padx=8, pady=4, sticky="w")
 
     # Data rows
     for idx, game in enumerate(scheduled_games):
@@ -76,22 +77,43 @@ def refresh_scheduled_games_table(table_frame):
         ctk.CTkLabel(row_frame, text=game['date']).grid(row=0, column=3, padx=8, pady=4, sticky="w")
         ctk.CTkLabel(row_frame, text=f"{game.get('start', '00:00')} - {game.get('end', '00:00')}").grid(row=0, column=4, padx=8, pady=4, sticky="w")
 
+        # Status label: query DB for is_final for this game id
+        try:
+            cursor = mydb.cursor()
+            try:
+                cursor.execute("SELECT is_final FROM games WHERE id = ?", (game.get('id'),))
+                r = cursor.fetchone()
+                is_final = bool(r['is_final']) if r and 'is_final' in r.keys() else False
+            finally:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+        except Exception:
+            is_final = False
+
+        if is_final:
+            status_lbl = ctk.CTkLabel(row_frame, text="Ended", text_color="#D9534F")  # red-ish
+        else:
+            status_lbl = ctk.CTkLabel(row_frame, text="Active", text_color="#7CFC00")  # green-ish
+        status_lbl.grid(row=0, column=5, padx=8, pady=4, sticky="w")
+
         # View button (new)
         view_btn = ctk.CTkButton(row_frame, text="View", width=60, height=30,
                                 command=lambda i=idx, g=game: on_view_click(i, g),
                                 hover_color="#4A90E2", fg_color="#1F75FE")
-        view_btn.grid(row=0, column=5, padx=4, pady=4, sticky="w")
+        view_btn.grid(row=0, column=6, padx=4, pady=4, sticky="w")
 
         # Action buttons
         edit_btn = ctk.CTkButton(row_frame, text="Edit", width=60, height=30,
                                  command=lambda i=idx: edit_scheduled_game(i),
                                  hover_color="#FFA500", fg_color="#4CAF50")
-        edit_btn.grid(row=0, column=6, padx=4, pady=4)
+        edit_btn.grid(row=0, column=7, padx=4, pady=4)
 
         delete_btn = ctk.CTkButton(row_frame, text="Delete", width=60, height=30,
                                    command=lambda i=idx: delete_scheduled_game(i),
                                    hover_color="#FF4500", fg_color="#F44336")
-        delete_btn.grid(row=0, column=7, padx=4, pady=4)
+        delete_btn.grid(row=0, column=8, padx=4, pady=4)
 
 def edit_scheduled_game(index):
     if index < 0 or index >= len(scheduled_games):
