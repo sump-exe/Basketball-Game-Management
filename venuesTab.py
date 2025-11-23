@@ -111,7 +111,6 @@ def open_add_venue_popup(prefill_name=None):
     win.title("Add / Edit Venue")
     win.geometry("420x260")
     win.transient(app)
-    win.grab_set()
 
     ctk.CTkLabel(win, text="Venue Name:").pack(pady=(12,4), anchor="w", padx=12)
     name_entry = ctk.CTkEntry(win)

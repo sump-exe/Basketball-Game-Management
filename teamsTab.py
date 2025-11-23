@@ -162,7 +162,6 @@ def show_team_players(team_name, players_frame):
                     win.title("Edit Player")
                     win.geometry("360x260")
                     win.transient(app)
-                    win.grab_set()
 
                     ctk.CTkLabel(win, text="Player Name:").pack(pady=(12,4), anchor="w", padx=12)
                     name_e = ctk.CTkEntry(win)
@@ -400,7 +399,6 @@ def open_add_team_popup(prefill_name=None):
     win.title("Add Team")
     win.geometry("360x140")
     win.transient(app)
-    win.grab_set()
 
     ctk.CTkLabel(win, text="New Team Name:").pack(pady=(12,6), anchor="w", padx=12)
     name_entry = ctk.CTkEntry(win)

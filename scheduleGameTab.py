@@ -62,15 +62,17 @@ def load_scheduled_games_from_db():
 def update_schedule_optionmenus(team1_opt, team2_opt, venue_opt):
     """
     Populate the option menus used when scheduling a game.
-    Only include teams whose roster size exactly equals the configured team_size
-    (from settings). If settings cannot be read, falls back to including all teams.
+
+    Filtering behavior:
+      - Only include teams whose roster size exactly equals the configured team_size
+        from settings.get_settings(). If settings cannot be read, falls back to all teams.
     """
-    # Determine required team size from settings (DB-backed), default to None -> no filtering
+    # Read current settings at call-time to ensure immediate propagation
     required_size = None
     try:
-        if settings:
-            cfg = settings.get_settings() or {}
-            required_size = cfg.get("team_size", None)
+        import settings as settings_mod
+        cfg = settings_mod.get_settings() or {}
+        required_size = cfg.get("team_size", None)
     except Exception:
         required_size = None
 
@@ -84,12 +86,11 @@ def update_schedule_optionmenus(team1_opt, team2_opt, venue_opt):
         filtered = []
         for t in team_names_all:
             roster = teams.get(t, [])
-            # roster might be a list of dicts or strings; use len()
             try:
                 if len(roster) == int(required_size):
                     filtered.append(t)
             except Exception:
-                # if something unexpected, skip filtering for this team (be conservative)
+                # skip invalid entries
                 continue
         team_names = filtered
 
@@ -101,7 +102,8 @@ def update_schedule_optionmenus(team1_opt, team2_opt, venue_opt):
     available_venues = [v for v, d in venues.items() if d.get("available", True)]
     if hasattr(venue_opt, "configure"):
         venue_opt.configure(values=available_venues)
-    # if current selection is no longer valid (or empty), show placeholder "Select"
+
+    # If current selection is no longer valid, reset to placeholder "Select"
     try:
         if team1_opt.get() not in team_names:
             team1_opt.set("Select")

@@ -1,25 +1,33 @@
-import os
-import sys
+"""
+Minimal DB-backed settings module.
+
+Purpose:
+- Persist two simple settings: team_size (int) and seasons_enabled (bool).
+- Provide an open_settings_popup(parent) that only:
+    * validates and saves the settings to DB
+    * closes the settings popup
+    * calls scheduleGameTab.update_schedule_optionmenus(...) via mainGui.refs so the
+      Schedule Game team dropdowns update immediately in the current session.
+- Does NOT close/open any application windows.
+"""
 import customtkinter as ctk
 from tkinter import messagebox
 from theDB import mydb
 
-# Default settings
+# Defaults
 _DEFAULTS = {
-    "team_size": 12,           # integer
-    "seasons_enabled": True    # boolean
+    "team_size": 12,
+    "seasons_enabled": True
 }
-
 _TABLE_NAME = "app_settings"
 
-# Track the last popup so we can close it before opening another (single instance)
-_last_popup_window = None
+_last_popup = None
+
 
 # -----------------------
-# Database helpers
+# DB helpers
 # -----------------------
-def ensure_settings_table():
-    """Create the settings table if it doesn't exist."""
+def _ensure_table():
     cur = mydb.cursor()
     try:
         cur.execute(f"""
@@ -35,63 +43,36 @@ def ensure_settings_table():
         except Exception:
             pass
 
-def load_settings_from_db():
-    """Return a dict of settings loaded from DB merged with defaults."""
-    ensure_settings_table()
+
+def _load_all_from_db():
+    _ensure_table()
     cur = mydb.cursor()
     try:
         cur.execute(f"SELECT key, value FROM {_TABLE_NAME}")
         rows = cur.fetchall()
         out = {}
-        for r in rows:
-            k = r['key'] if 'key' in r.keys() else r[0]
-            v = r['value'] if 'value' in r.keys() else r[1]
+        for k, v in rows:
             out[k] = v
+        return out
     finally:
         try:
             cur.close()
         except Exception:
             pass
 
-    # Coerce typed settings and apply defaults
-    settings = {}
-    # team_size (int)
-    ts = out.get("team_size")
-    try:
-        settings["team_size"] = int(ts) if ts is not None else _DEFAULTS["team_size"]
-    except Exception:
-        settings["team_size"] = _DEFAULTS["team_size"]
-    # seasons_enabled (bool stored as "0"/"1" or "true"/"false")
-    se = out.get("seasons_enabled")
-    if se is None:
-        settings["seasons_enabled"] = _DEFAULTS["seasons_enabled"]
-    else:
-        if isinstance(se, str):
-            s = se.strip().lower()
-            settings["seasons_enabled"] = s in ("1", "true", "yes", "on")
-        else:
-            settings["seasons_enabled"] = bool(se)
 
-    return settings
-
-def save_settings_to_db(settings: dict) -> bool:
-    """Persist given settings dict into DB. Returns True on success."""
-    ensure_settings_table()
+def _save_key_value(key, value):
+    _ensure_table()
     cur = mydb.cursor()
     try:
-        # Use INSERT OR REPLACE for upsert semantics
-        if "team_size" in settings:
-            cur.execute(f"INSERT OR REPLACE INTO {_TABLE_NAME} (key, value) VALUES (?, ?)", ("team_size", str(int(settings["team_size"]))))
-        if "seasons_enabled" in settings:
-            cur.execute(f"INSERT OR REPLACE INTO {_TABLE_NAME} (key, value) VALUES (?, ?)", ("seasons_enabled", "1" if settings["seasons_enabled"] else "0"))
+        cur.execute(f"INSERT OR REPLACE INTO {_TABLE_NAME} (key, value) VALUES (?, ?)", (key, str(value)))
         mydb.commit()
         return True
-    except Exception as e:
+    except Exception:
         try:
             mydb.rollback()
         except Exception:
             pass
-        print("Failed to save settings to DB:", e)
         return False
     finally:
         try:
@@ -99,179 +80,177 @@ def save_settings_to_db(settings: dict) -> bool:
         except Exception:
             pass
 
+
 # -----------------------
 # Public API
 # -----------------------
 def get_settings():
-    """Return current settings dict (typed values)."""
-    return load_settings_from_db()
+    raw = _load_all_from_db()
+    out = {}
+    ts = raw.get("team_size")
+    try:
+        out["team_size"] = int(ts) if ts is not None else _DEFAULTS["team_size"]
+    except Exception:
+        out["team_size"] = _DEFAULTS["team_size"]
+    se = raw.get("seasons_enabled")
+    if se is None:
+        out["seasons_enabled"] = _DEFAULTS["seasons_enabled"]
+    else:
+        s = str(se).strip().lower()
+        out["seasons_enabled"] = s in ("1", "true", "yes", "on")
+    return out
+
 
 def save_settings(settings: dict) -> bool:
-    """Persist settings dict into DB. Returns True on success."""
-    # Basic validation/coercion
-    s = {}
+    ok = True
     if "team_size" in settings:
         try:
-            s["team_size"] = int(settings["team_size"])
+            ts = int(settings["team_size"])
         except Exception:
-            s["team_size"] = _DEFAULTS["team_size"]
+            ts = _DEFAULTS["team_size"]
+        ok = ok and _save_key_value("team_size", ts)
     if "seasons_enabled" in settings:
-        s["seasons_enabled"] = bool(settings["seasons_enabled"])
-    return save_settings_to_db(s)
+        ok = ok and _save_key_value("seasons_enabled", 1 if bool(settings["seasons_enabled"]) else 0)
+    return bool(ok)
+
 
 # -----------------------
-# UI: Settings popup
+# UI: settings popup
 # -----------------------
 def open_settings_popup(parent=None):
+    """Open the Settings popup (team size, seasons enabled).
+    Safe version: NO grab_set(), NO grab_release(), avoids logout misfire.
     """
-    Open a modal settings dialog (CTkToplevel). Parent should be the main app window.
 
-    When the user saves settings:
-      - settings are saved to DB
-      - a messagebox informs the user they must log in again
-      - the settings popup is closed
-      - the current process is restarted (os.execv) which closes the old main window
-        and starts a fresh instance (the new process will open the login UI).
-    """
-    global _last_popup_window
+    global _last_popup
 
-    # If an existing settings popup exists, destroy it first
-    try:
-        if _last_popup_window is not None:
+    # Close any existing popup
+    if _last_popup is not None:
+        if hasattr(_last_popup, "winfo_exists") and _last_popup.winfo_exists():
             try:
-                if hasattr(_last_popup_window, "winfo_exists") and _last_popup_window.winfo_exists():
-                    _last_popup_window.destroy()
+                _last_popup.destroy()
             except Exception:
                 pass
-            _last_popup_window = None
-    except Exception:
-        _last_popup_window = None
+        _last_popup = None
 
-    # Load current settings (safely)
-    try:
-        settings = get_settings()
-    except Exception:
-        settings = dict(_DEFAULTS)
-
-    win = ctk.CTkToplevel(parent) if parent is not None else ctk.CTkToplevel()
+    # Create popup
+    win = ctk.CTkToplevel(parent) if parent else ctk.CTkToplevel()
     win.title("Settings")
-    win.geometry("420x200")
-    try:
-        win.transient(parent)
-    except Exception:
-        pass
-    try:
-        win.grab_set()
-    except Exception:
-        pass
+    win.geometry("360x260")
+    win.resizable(False, False)
 
-    # Ensure we clear _last_popup_window when this window is closed by the user (WM close)
-    def _on_close():
-        global _last_popup_window
-        try:
-            win.destroy()
-        except Exception:
-            pass
-        _last_popup_window = None
-
+    # Keep popup above parent but without grab_set()
     try:
-        win.protocol("WM_DELETE_WINDOW", _on_close)
+        if parent:
+            win.transient(parent)     # attach window visually to parent
+        win.lift()                    # raise window
+        win.attributes("-topmost", True)
+        win.after(50, lambda: win.attributes("-topmost", False))
     except Exception:
         pass
 
-    content = ctk.CTkFrame(win)
-    content.pack(fill="both", expand=True, padx=12, pady=12)
+    # Store reference
+    _last_popup = win
+
+    # ======================================================
+    # UI
+    # ======================================================
+    title = ctk.CTkLabel(win, text="Settings", font=ctk.CTkFont(size=20, weight="bold"))
+    title.pack(pady=(12, 8))
+
+    # Frame
+    frm = ctk.CTkFrame(win)
+    frm.pack(padx=20, pady=10, fill="both", expand=True)
 
     # Team size
-    ctk.CTkLabel(content, text="Team size (players per team):").pack(anchor="w", pady=(6,4))
-    team_size_var = ctk.StringVar(value=str(settings.get("team_size", _DEFAULTS["team_size"])))
-    team_size_entry = ctk.CTkEntry(content, textvariable=team_size_var, width=120)
-    team_size_entry.pack(anchor="w", pady=(0,8))
+    ctk.CTkLabel(frm, text="Team Size:").grid(row=0, column=0, sticky="w", pady=5)
+    team_size_entry = ctk.CTkEntry(frm, width=80)
+    team_size_entry.grid(row=0, column=1, sticky="w", pady=5)
 
-    # Seasons indicator
-    seasons_var = ctk.BooleanVar(value=bool(settings.get("seasons_enabled", _DEFAULTS["seasons_enabled"])))
-    seasons_chk = ctk.CTkCheckBox(content, text="Enable seasons indicator", variable=seasons_var)
-    seasons_chk.pack(anchor="w", pady=(6,8))
+    # Seasons Enabled
+    seasons_var = ctk.BooleanVar()
+    seasons_check = ctk.CTkCheckBox(frm, text="Enable Seasons", variable=seasons_var)
+    seasons_check.grid(row=1, column=0, columnspan=2, sticky="w", pady=5)
 
-    # Validation helper
-    def _validate_team_size():
-        val = team_size_var.get().strip()
-        if not val:
-            messagebox.showwarning("Validation", "Team size cannot be empty.")
-            return None
-        if not val.isdigit():
-            messagebox.showwarning("Validation", "Team size must be a positive integer.")
-            return None
-        ival = int(val)
-        if ival <= 0:
-            messagebox.showwarning("Validation", "Team size must be greater than zero.")
-            return None
-        if ival > 500:
-            if not messagebox.askyesno("Large value", "Team size is large (>500). Continue?"):
-                return None
-        return ival
+    # Load saved settings
+    try:
+        cur_settings = get_settings()
+    except Exception:
+        cur_settings = {}
+    if cur_settings:
+        team_size_entry.insert(0, str(cur_settings.get("team_size", "")))
+        seasons_var.set(cur_settings.get("seasons_enabled", False))
 
-    # Buttons
-    btn_frame = ctk.CTkFrame(content, fg_color="#2A2A2A")
-    btn_frame.pack(side="bottom", fill="x", pady=(12,0))
-
-    def on_cancel():
+    # ======================================================
+    # Save handler
+    # ======================================================
+    def _validate_team_size_val(text):
         try:
-            win.destroy()
+            ts_val = int(text)
+            return ts_val > 0
+        except Exception:
+            return False
+
+    def _apply_to_schedule_dropdowns():
+        """
+        Best-effort: call scheduleGameTab.update_schedule_optionmenus with refs
+        from mainGui so the dropdown values refresh immediately.
+        No windows should be opened or closed here.
+        """
+        try:
+            import mainGui as mg
+            refs = getattr(mg, "refs", {}) or {}
+            import scheduleGameTab as sgt
+        except Exception:
+            return
+        try:
+            sgt.update_schedule_optionmenus(
+                refs.get("tab3_team1_opt"),
+                refs.get("tab3_team2_opt"),
+                refs.get("tab3_venue_opt")
+            )
         except Exception:
             pass
 
-    def on_save():
-        ival = _validate_team_size()
-        if ival is None:
+    def _on_save_clicked():
+        txt = team_size_entry.get().strip()
+        if not _validate_team_size_val(txt):
+            messagebox.showerror("Invalid Input", "Team size must be a positive integer.")
             return
-        new_settings = {
-            "team_size": ival,
-            "seasons_enabled": bool(seasons_var.get())
-        }
-        ok = save_settings(new_settings)
+        ts_val = int(txt)
+        seasons_val = bool(seasons_var.get())
+
+        # Persist settings using this module's save_settings
+        ok = save_settings({"team_size": ts_val, "seasons_enabled": seasons_val})
         if not ok:
             messagebox.showerror("Settings", "Failed to save settings.")
             return
 
-        # Inform user they must log in again
+        # Inform user and close popup
         try:
-            messagebox.showinfo("Settings Saved", "Settings have been saved. Please log in again.")
+            messagebox.showinfo("Settings Saved", "Settings have been saved and applied.")
         except Exception:
             pass
 
-        # Close settings popup (so the window is gone in the outgoing process)
         try:
-            win.destroy()
+            if hasattr(win, "destroy"):
+                win.destroy()
         except Exception:
             pass
 
         # Clear tracked popup ref
-        global _last_popup_window
-        _last_popup_window = None
+        global _last_popup
+        _last_popup = None
 
-        # Restart the running Python process to ensure the old main window is closed
-        # and a fresh instance (showing login) is started.
-        try:
-            python = sys.executable
-            os.execv(python, [python] + sys.argv)
-        except Exception:
-            # If execv fails for any reason, notify the user to restart manually.
-            try:
-                messagebox.showinfo("Restart Required", "Settings saved but we could not restart the application automatically. Please restart the application to apply changes.")
-            except Exception:
-                pass
+        # Immediately apply the change to schedule dropdowns in the running session.
+        # This is best-effort and will not open/close other windows.
+        _apply_to_schedule_dropdowns()
 
-    ctk.CTkButton(btn_frame, text="Save", command=on_save, width=100).pack(side="right", padx=(6,12), pady=8)
-    ctk.CTkButton(btn_frame, text="Cancel", command=on_cancel, width=100).pack(side="right", padx=6, pady=8)
+    # Footer buttons
+    btn_frame = ctk.CTkFrame(win, fg_color="transparent")
+    btn_frame.pack(pady=10)
 
-    # attach variables for external inspection if needed
-    win._settings_vars = {
-        "team_size_var": team_size_var,
-        "seasons_var": seasons_var
-    }
-
-    # store reference so subsequent calls can destroy this window first
-    _last_popup_window = win
+    ctk.CTkButton(btn_frame, text="Save", width=80, command=_on_save_clicked).grid(row=0, column=0, padx=10)
+    ctk.CTkButton(btn_frame, text="Cancel", width=80, command=lambda: win.destroy()).grid(row=0, column=1, padx=10)
 
     return win

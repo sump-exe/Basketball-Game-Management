@@ -123,7 +123,6 @@ def edit_scheduled_game(index):
     win.title("Edit Scheduled Game")
     win.geometry("420x350")
     win.transient(refs.get('app') if refs.get('app') else None)
-    win.grab_set()
 
     ctk.CTkLabel(win, text="Team 1:").pack(pady=(12,4), anchor="w", padx=12)
     team1_entry = ctk.CTkEntry(win)
