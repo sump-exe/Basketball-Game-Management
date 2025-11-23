@@ -6,9 +6,9 @@ Purpose:
 - Provide an open_settings_popup(parent) that only:
     * validates and saves the settings to DB
     * closes the settings popup
-    * calls scheduleGameTab.update_schedule_optionmenus(...) via mainGui.refs so the
-      Schedule Game team dropdowns update immediately in the current session.
-- Does NOT close/open any application windows.
+    * calls any registered on-change callbacks so callers (mainGui/scheduleGameTab)
+      can update UI in-place. This avoids importing mainGui inside settings
+      and prevents accidental creation of new root windows.
 """
 import customtkinter as ctk
 from tkinter import messagebox
@@ -22,6 +22,30 @@ _DEFAULTS = {
 _TABLE_NAME = "app_settings"
 
 _last_popup = None
+
+# Callbacks registered by other modules to be invoked after settings are saved.
+_on_change_callbacks = []
+
+
+# -----------------------
+# Callback registration API
+# -----------------------
+def register_on_change(callback):
+    """
+    Register a zero-argument callback to be invoked when settings are changed.
+    Callbacks are best-effort; exceptions are caught and ignored so UI won't crash.
+    """
+    if callable(callback):
+        _on_change_callbacks.append(callback)
+
+
+def _invoke_on_change_callbacks():
+    for cb in list(_on_change_callbacks):
+        try:
+            cb()
+        except Exception:
+            # swallow exceptions to avoid crashing the save flow
+            pass
 
 
 # -----------------------
@@ -111,6 +135,12 @@ def save_settings(settings: dict) -> bool:
         ok = ok and _save_key_value("team_size", ts)
     if "seasons_enabled" in settings:
         ok = ok and _save_key_value("seasons_enabled", 1 if bool(settings["seasons_enabled"]) else 0)
+    if ok:
+        # If save succeeded, notify registered callbacks so UI can update in-place.
+        try:
+            _invoke_on_change_callbacks()
+        except Exception:
+            pass
     return bool(ok)
 
 
@@ -191,27 +221,6 @@ def open_settings_popup(parent=None):
         except Exception:
             return False
 
-    def _apply_to_schedule_dropdowns():
-        """
-        Best-effort: call scheduleGameTab.update_schedule_optionmenus with refs
-        from mainGui so the dropdown values refresh immediately.
-        No windows should be opened or closed here.
-        """
-        try:
-            import mainGui as mg
-            refs = getattr(mg, "refs", {}) or {}
-            import scheduleGameTab as sgt
-        except Exception:
-            return
-        try:
-            sgt.update_schedule_optionmenus(
-                refs.get("tab3_team1_opt"),
-                refs.get("tab3_team2_opt"),
-                refs.get("tab3_venue_opt")
-            )
-        except Exception:
-            pass
-
     def _on_save_clicked():
         txt = team_size_entry.get().strip()
         if not _validate_team_size_val(txt):
@@ -241,10 +250,6 @@ def open_settings_popup(parent=None):
         # Clear tracked popup ref
         global _last_popup
         _last_popup = None
-
-        # Immediately apply the change to schedule dropdowns in the running session.
-        # This is best-effort and will not open/close other windows.
-        _apply_to_schedule_dropdowns()
 
     # Footer buttons
     btn_frame = ctk.CTkFrame(win, fg_color="transparent")

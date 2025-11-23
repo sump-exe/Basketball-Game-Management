@@ -310,6 +310,13 @@ def show_main_interface():
     refs["game_preview_label"] = preview_label
     refs["game_preview"] = preview_label
 
+    # Register a callback with settings so saving settings updates schedule dropdowns
+    try:
+        settings.register_on_change(lambda: file3.update_schedule_optionmenus(tab3_team1_opt, tab3_team2_opt, tab3_venue_opt))
+    except Exception:
+        # best-effort: if registration fails, continue
+        pass
+
     # Tab 4: View Games
     tab4 = tabview.tab("View Games")
     tab4.grid_columnconfigure(1, weight=1)
