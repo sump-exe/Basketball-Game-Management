@@ -34,6 +34,12 @@ def _season_range_for_year(season, year):
         end = _date(year, em, ed)
     return start, end
 
+def _season_windows_for_year(year):
+    """Return window (start, end) spanning Pre-season of year through Off-season of year+1."""
+    start, _ = _season_range_for_year("Pre-season", year)
+    _, end = _season_range_for_year("Off-season", year + 1)
+    return start, end
+
 def _season_for_date(dt):
     """
     Determine season name for a given date object.
@@ -67,6 +73,47 @@ def _season_from_iso(date_iso):
         return ""
     return _season_for_date(dt)
 
+def _parse_iso(date_iso):
+    """Return date object or None for invalid/empty input."""
+    try:
+        if not date_iso:
+            return None
+        return datetime.strptime(date_iso, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+def _compute_season_start_years_with_games_from_schedule():
+    """
+    Determine season-start years that have at least one scheduled game within
+    their season window, based on the in-memory scheduled_games list.
+    Returns list of ints (years), newest first.
+    """
+    dates = []
+    for g in scheduled_games:
+        d = _parse_iso(g.get('date'))
+        if d:
+            dates.append(d.year)
+    if not dates:
+        return []
+
+    miny = min(dates)
+    maxy = max(dates)
+    years_with_games = []
+    start_candidate = max(1900, miny - 1)
+    end_candidate = maxy
+    for y in range(start_candidate, end_candidate + 1):
+        s, e = _season_windows_for_year(y)
+        # check any scheduled game date falls between s and e
+        found = False
+        for g in scheduled_games:
+            dt = _parse_iso(g.get('date'))
+            if dt and s <= dt <= e:
+                found = True
+                break
+        if found:
+            years_with_games.append(y)
+    years_with_games.sort(reverse=True)
+    return years_with_games
 
 def on_view_click(index, game):
     """Called when the View button is pressed."""
@@ -83,7 +130,10 @@ def on_view_click(index, game):
 
     # Clear the panel (we are replacing its contents)
     for w in panel.winfo_children():
-        w.destroy()
+        try:
+            w.destroy()
+        except Exception:
+            pass
 
     # --- RECREATE THE DETAILS LABEL ---
     details_label = ctk.CTkLabel(
@@ -97,15 +147,14 @@ def on_view_click(index, game):
     # Replace old label reference
     refs["details_content"] = details_label
 
+    # Defer calling show_game_details to next event loop turn to avoid first-click missing configure
     try:
         app_widget = refs.get('app')
         if hasattr(app_widget, 'after'):
             app_widget.after(0, lambda i=index: show_game_details(i))
         else:
-            # fallback if app not available
             show_game_details(index)
     except Exception:
-        # If something goes wrong with after, call directly as fallback
         try:
             show_game_details(index)
         except Exception:
@@ -119,75 +168,156 @@ def on_view_click(index, game):
     }
 
 def refresh_scheduled_games_table(table_frame):
-    """Refresh the table of scheduled games (now includes Season column)."""
+    """Refresh the table of scheduled games grouped by season-start year (Pre-season..next year's Off-season)."""
     # Clear existing rows
     for widget in table_frame.winfo_children():
-        widget.destroy()
-
-    # Header row (added Season column)
-    header_frame = ctk.CTkFrame(table_frame, fg_color="#1F1F1F")
-    header_frame.pack(fill="x", padx=8, pady=4)
-    ctk.CTkLabel(header_frame, text="Team 1", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, padx=8, pady=4, sticky="w")
-    ctk.CTkLabel(header_frame, text="Team 2", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=1, padx=8, pady=4, sticky="w")
-    ctk.CTkLabel(header_frame, text="Venue", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=2, padx=8, pady=4, sticky="w")
-    ctk.CTkLabel(header_frame, text="Date", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=3, padx=8, pady=4, sticky="w")
-    ctk.CTkLabel(header_frame, text="Season", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=4, padx=8, pady=4, sticky="w")
-    ctk.CTkLabel(header_frame, text="Time", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=5, padx=8, pady=4, sticky="w")
-    ctk.CTkLabel(header_frame, text="Status", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=6, padx=8, pady=4, sticky="w")
-    ctk.CTkLabel(header_frame, text="View", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=7, padx=8, pady=4, sticky="w")
-
-    # Data rows
-    for index, game in enumerate(scheduled_games):
-        row_frame = ctk.CTkFrame(table_frame, fg_color="#2A2A2A")
-        row_frame.pack(fill="x", padx=8, pady=2)
-        ctk.CTkLabel(row_frame, text=game['team1']).grid(row=0, column=0, padx=8, pady=4, sticky="w")
-        ctk.CTkLabel(row_frame, text=game['team2']).grid(row=0, column=1, padx=8, pady=4, sticky="w")
-        ctk.CTkLabel(row_frame, text=game['venue']).grid(row=0, column=2, padx=8, pady=4, sticky="w")
-        ctk.CTkLabel(row_frame, text=game['date']).grid(row=0, column=3, padx=8, pady=4, sticky="w")
-
-        # Season column (derived from game date)
-        season_name = _season_from_iso(game.get('date') or "")
-        ctk.CTkLabel(row_frame, text=season_name).grid(row=0, column=4, padx=8, pady=4, sticky="w")
-
-        ctk.CTkLabel(row_frame, text=f"{game.get('start', '00:00')} - {game.get('end', '00:00')}").grid(row=0, column=5, padx=8, pady=4, sticky="w")
-
-        # Status label: query DB for is_final for this game id
         try:
-            cursor = mydb.cursor()
-            try:
-                cursor.execute("SELECT is_final FROM games WHERE id = ?", (game.get('id'),))
-                r = cursor.fetchone()
-                is_final = bool(r['is_final']) if r and 'is_final' in r.keys() else False
-            finally:
-                try:
-                    cursor.close()
-                except Exception:
-                    pass
+            widget.destroy()
         except Exception:
-            is_final = False
+            pass
 
-        if is_final:
-            status_lbl = ctk.CTkLabel(row_frame, text="Ended", text_color="#D9534F")  # red-ish
-        else:
-            status_lbl = ctk.CTkLabel(row_frame, text="Active", text_color="#7CFC00")  # green-ish
-        status_lbl.grid(row=0, column=6, padx=8, pady=4, sticky="w")
+    # Build quick id -> index map for callbacks
+    id_to_index = {}
+    for idx, g in enumerate(scheduled_games):
+        gid = g.get('id')
+        if gid is not None:
+            id_to_index[gid] = idx
 
-        # View button (new)
-        view_btn = ctk.CTkButton(row_frame, text="View", width=60, height=30,
-                                command=lambda i=index, g=game: on_view_click(i, g),
-                                hover_color="#4A90E2", fg_color="#1F75FE")
-        view_btn.grid(row=0, column=7, padx=4, pady=4, sticky="w")
+    # Determine seasons that have games (newest first)
+    years = _compute_season_start_years_with_games_from_schedule()
 
-        # Action buttons
-        edit_btn = ctk.CTkButton(row_frame, text="Edit", width=60, height=30,
-                                 command=lambda i=index: edit_scheduled_game(i),
-                                 hover_color="#FFA500", fg_color="#4CAF50")
-        edit_btn.grid(row=0, column=8, padx=4, pady=4)
+    if not years:
+        # Fallback: show flat header and message if no seasons
+        header_frame = ctk.CTkFrame(table_frame, fg_color="#1F1F1F")
+        header_frame.pack(fill="x", padx=8, pady=4)
+        ctk.CTkLabel(header_frame, text="No scheduled seasons found.", font=ctk.CTkFont(size=14, weight="bold")).pack(padx=8, pady=8)
+        return
 
-        delete_btn = ctk.CTkButton(row_frame, text="Delete", width=60, height=30,
-                                   command=lambda i=index: delete_scheduled_game(i),
-                                   hover_color="#FF4500", fg_color="#F44336")
-        delete_btn.grid(row=0, column=9, padx=4, pady=4)
+    # For each season-start year, render a block
+    for year in years:
+        start_dt, end_dt = _season_windows_for_year(year)
+
+        # Season header
+        header_frame = ctk.CTkFrame(table_frame, fg_color="#1E1E1E")
+        header_frame.pack(fill="x", padx=8, pady=(12, 6))
+        header_frame.grid_columnconfigure(0, weight=1)
+        header_lbl = ctk.CTkLabel(header_frame, text=f"Season {year} — {start_dt.isoformat()} → {end_dt.isoformat()}", font=ctk.CTkFont(size=14, weight="bold"))
+        header_lbl.grid(row=0, column=0, sticky="w", padx=8, pady=6)
+
+        # Column headers (same columns as before)
+        cols = ctk.CTkFrame(table_frame, fg_color="#1F1F1F")
+        cols.pack(fill="x", padx=8, pady=(0,4))
+        # match grid columns to rows (0..9)
+        for ci in range(10):
+            # give flexible weights to first 7 columns so they expand equally; action buttons keep minimal width
+            cols.grid_columnconfigure(ci, weight=(1 if ci <= 6 else 0))
+        ctk.CTkLabel(cols, text="Team 1", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(cols, text="Team 2", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=1, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(cols, text="Venue", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=2, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(cols, text="Date", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=3, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(cols, text="Season", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=4, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(cols, text="Time", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=5, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(cols, text="Status", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=6, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(cols, text="View", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=7, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(cols, text="Edit", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=8, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(cols, text="Delete", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=9, padx=8, pady=4, sticky="w")
+
+        # Collect games in this window and sort by date then start time
+        group_games = []
+        for g in scheduled_games:
+            dt = _parse_iso(g.get('date'))
+            if dt and start_dt <= dt <= end_dt:
+                group_games.append(g)
+        # sort by date then start time (safe defaults)
+        def _sort_key(g):
+            dt = _parse_iso(g.get('date')) or _date.min
+            st = g.get('start') or '00:00'
+            return (dt, st)
+        group_games.sort(key=_sort_key)
+
+        if not group_games:
+            empty_lbl = ctk.CTkLabel(table_frame, text="(No games in this season window)", anchor="w", text_color="#BBBBBB")
+            empty_lbl.pack(fill="x", padx=16, pady=(6,8))
+            continue
+
+        # Render rows for this group
+        for game in group_games:
+            gid = game.get('id')
+            idx = id_to_index.get(gid, None)
+            row_frame = ctk.CTkFrame(table_frame, fg_color="#2A2A2A")
+            row_frame.pack(fill="x", padx=8, pady=2)
+
+            # IMPORTANT: ensure row_frame's grid columns match header 'cols' grid so content aligns under header
+            for ci in range(10):
+                row_frame.grid_columnconfigure(ci, weight=(1 if ci <= 6 else 0))
+
+            # columns align to the header columns above
+            ctk.CTkLabel(row_frame, text=game.get('team1')).grid(row=0, column=0, padx=8, pady=4, sticky="w")
+            ctk.CTkLabel(row_frame, text=game.get('team2')).grid(row=0, column=1, padx=8, pady=4, sticky="w")
+            ctk.CTkLabel(row_frame, text=game.get('venue')).grid(row=0, column=2, padx=8, pady=4, sticky="w")
+            ctk.CTkLabel(row_frame, text=game.get('date')).grid(row=0, column=3, padx=8, pady=4, sticky="w")
+
+            # Season column (derived from game date)
+            season_name = _season_from_iso(game.get('date') or "")
+            ctk.CTkLabel(row_frame, text=season_name).grid(row=0, column=4, padx=8, pady=4, sticky="w")
+
+            ctk.CTkLabel(row_frame, text=f"{game.get('start', '00:00')} - {game.get('end', '00:00')}").grid(row=0, column=5, padx=8, pady=4, sticky="w")
+
+            # Status label: query DB for is_final for this game id
+            try:
+                cursor = mydb.cursor()
+                try:
+                    cursor.execute("SELECT is_final FROM games WHERE id = ?", (gid,))
+                    r = cursor.fetchone()
+                    is_final = bool(r['is_final']) if r and 'is_final' in r.keys() else False
+                finally:
+                    try:
+                        cursor.close()
+                    except Exception:
+                        pass
+            except Exception:
+                is_final = False
+
+            if is_final:
+                status_lbl = ctk.CTkLabel(row_frame, text="Ended", text_color="#D9534F")  # red-ish
+            else:
+                status_lbl = ctk.CTkLabel(row_frame, text="Active", text_color="#7CFC00")  # green-ish
+            status_lbl.grid(row=0, column=6, padx=8, pady=4, sticky="w")
+
+            # View button (preserve behavior; index may be None if id missing — fallback to using game object)
+            view_cmd_index = idx if idx is not None else None
+            if view_cmd_index is not None:
+                view_btn = ctk.CTkButton(row_frame, text="View", width=60, height=30,
+                                        command=lambda i=view_cmd_index, g=game: on_view_click(i, g),
+                                        hover_color="#4A90E2", fg_color="#1F75FE")
+            else:
+                # fallback uses a lambda that finds the index dynamically
+                view_btn = ctk.CTkButton(row_frame, text="View", width=60, height=30,
+                                        command=lambda g=game: on_view_click(scheduled_games.index(g), g),
+                                        hover_color="#4A90E2", fg_color="#1F75FE")
+            view_btn.grid(row=0, column=7, padx=4, pady=4, sticky="w")
+
+            # Edit button
+            if idx is not None:
+                edit_btn = ctk.CTkButton(row_frame, text="Edit", width=60, height=30,
+                                         command=lambda i=idx: edit_scheduled_game(i),
+                                         hover_color="#FFA500", fg_color="#4CAF50")
+            else:
+                edit_btn = ctk.CTkButton(row_frame, text="Edit", width=60, height=30,
+                                         command=lambda g=game: edit_scheduled_game(scheduled_games.index(g)),
+                                         hover_color="#FFA500", fg_color="#4CAF50")
+            edit_btn.grid(row=0, column=8, padx=4, pady=4)
+
+            # Delete button
+            if idx is not None:
+                delete_btn = ctk.CTkButton(row_frame, text="Delete", width=60, height=30,
+                                           command=lambda i=idx: delete_scheduled_game(i),
+                                           hover_color="#FF4500", fg_color="#F44336")
+            else:
+                delete_btn = ctk.CTkButton(row_frame, text="Delete", width=60, height=30,
+                                           command=lambda g=game: delete_scheduled_game(scheduled_games.index(g)),
+                                           hover_color="#FF4500", fg_color="#F44336")
+            delete_btn.grid(row=0, column=9, padx=4, pady=4)
 
 def edit_scheduled_game(index):
     if index < 0 or index >= len(scheduled_games):
@@ -264,8 +394,6 @@ def edit_scheduled_game(index):
             venue_id = venue_row['id']
 
             # Use the global ScheduleManager via theDB module's connection
-            from theDB import mydb
-            # Use ScheduleManager from theDB that uses the same mydb
             sm = ScheduleManager()
             if game_id:
                 sm.updateGame(game_id, home_id, away_id, venue_id, d, start, end)
@@ -290,7 +418,6 @@ def edit_scheduled_game(index):
         win.destroy()
 
     ctk.CTkButton(win, text="Save Changes", command=save_edit).pack(pady=12)
-
 
 def delete_scheduled_game(index):
     if not (0 <= index < len(scheduled_games)):
