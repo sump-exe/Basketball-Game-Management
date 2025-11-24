@@ -80,6 +80,7 @@ def refresh_standings_table(container):
 def refresh_standings_rows():
     """
     Refresh only the standings rows (left side). This avoids touching the MVP controls.
+    Only teams that appear in the schedule (games table) will be shown.
     """
     standings_frame = _widgets.get("standings_frame")
     if not standings_frame:
@@ -110,7 +111,7 @@ def refresh_standings_rows():
     ctk.CTkLabel(header, text="Losses", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=3, padx=8, pady=6, sticky="w")
     ctk.CTkLabel(header, text="Total Points", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=4, padx=8, pady=6, sticky="w")
 
-    # Query teams and compute wins/losses via subqueries (considers only is_final=1 games)
+    # Query teams that have at least one scheduled game (home or away) and compute wins/losses via subqueries.
     cursor = mydb.cursor()
     try:
         cursor.execute("""
@@ -125,6 +126,10 @@ def refresh_standings_rows():
                             AND (g.winner_team_id IS NOT NULL AND g.winner_team_id != t.id)
                          ), 0) AS losses
             FROM teams t
+            WHERE EXISTS (
+                SELECT 1 FROM games g2
+                WHERE (g2.home_team_id = t.id OR g2.away_team_id = t.id)
+            )
             ORDER BY wins DESC, totalPoints DESC, t.teamName COLLATE NOCASE
         """)
         teams = cursor.fetchall()
@@ -135,7 +140,7 @@ def refresh_standings_rows():
             pass
 
     if not teams:
-        ctk.CTkLabel(standings_frame, text="No teams found.", anchor="w").pack(padx=8, pady=8)
+        ctk.CTkLabel(standings_frame, text="No scheduled teams found.", anchor="w").pack(padx=8, pady=8)
         return
 
     # Data rows
