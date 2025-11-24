@@ -3,19 +3,15 @@ from tkinter import messagebox
 from datetime import datetime, date as _date
 from theDB import *
 
-# This module provides scheduling functions. It expects mainGui.py to set:
-#   app, sched_mgr, refs, teams (from file1), venues (from file2)
 app = None
 sched_mgr = None
 refs = {}
 teams = {}
 venues = {}
 
-scheduled_games = []  # List of dicts: [{'team1': str, 'team2': str, 'venue': str, 'date': str, 'start': str, 'end': str}]
-
+scheduled_games = []
 
 def load_scheduled_games_from_db():
-    """Load scheduled games from DB into `scheduled_games` list."""
     scheduled_games.clear()
     cur = sched_mgr.mydb.cursor()
 
@@ -57,21 +53,10 @@ def load_scheduled_games_from_db():
 
 
 def update_schedule_optionmenus(team1_opt, team2_opt, venue_opt):
-    """
-    Populate the option menus used when scheduling a game.
-
-    Filtering behavior:
-      - Only include teams whose roster size exactly equals 12 players.
-        (This is now enforced unconditionally; the settings UI may still exist
-         in the codebase but the GUI will only expose 12-player teams.)
-    """
-    # Enforce exactly 12 players for scheduling UI
     required_size = 12
 
-    # team_names initially all team keys
     team_names_all = list(teams.keys())
 
-    # filter teams that have exact roster length equal to required_size
     filtered = []
     for t in team_names_all:
         roster = teams.get(t, [])
@@ -79,11 +64,9 @@ def update_schedule_optionmenus(team1_opt, team2_opt, venue_opt):
             if len(roster) == int(required_size):
                 filtered.append(t)
         except Exception:
-            # skip invalid entries
             continue
     team_names = filtered
 
-    # Protect against None widgets
     if hasattr(team1_opt, "configure"):
         team1_opt.configure(values=team_names)
     if hasattr(team2_opt, "configure"):
@@ -92,7 +75,6 @@ def update_schedule_optionmenus(team1_opt, team2_opt, venue_opt):
     if hasattr(venue_opt, "configure"):
         venue_opt.configure(values=available_venues)
 
-    # If current selection is no longer valid, reset to placeholder "Select"
     try:
         if team1_opt.get() not in team_names:
             team1_opt.set("Select")
@@ -118,7 +100,6 @@ def update_schedule_optionmenus(team1_opt, team2_opt, venue_opt):
         except Exception:
             pass
 
-
 def show_game_details(index):
     if index < 0 or index >= len(scheduled_games):
         return
@@ -136,16 +117,6 @@ def show_game_details(index):
 
 
 def build_schedule_left_ui(parent):
-    """
-    Builds the left-side scheduling controls including:
-    - Team 1
-    - Team 2
-    - Venue
-    - Season
-    - Year (text field placed below Season)
-    - Date (now accepts only Month-Day in MM-DD)
-    - Start / End Time
-    """
     global refs
 
     frame = ctk.CTkFrame(parent)
@@ -216,26 +187,19 @@ def build_schedule_left_ui(parent):
     save_btn = ctk.CTkButton(frame, text="Schedule Game", command=schedule_game)
     save_btn.grid(row=8, column=0, columnspan=2, pady=10, sticky="ew")
 
-    # Make columns stretch properly
     frame.grid_columnconfigure(1, weight=1)
 
-    # Populate menus
     update_schedule_optionmenus(team1_opt, team2_opt, venue_opt)
 
     return frame
 
-
-# Backwards-compatible alias for callers expecting build_left_ui
 def build_left_ui(parent):
     return build_schedule_left_ui(parent)
 
 
 def update_game_preview():
-    """Live preview shown on the right side of the Schedule Game tab."""
-    # initialize lines first
     lines = []
 
-    # prefer showing season and year together when possible
     try:
         season = refs.get('tab3_season_opt').get() if refs.get('tab3_season_opt') else None
     except Exception:
@@ -245,19 +209,15 @@ def update_game_preview():
     except Exception:
         year_txt = ""
 
-    # Date is now MM-DD; display combined if possible
     try:
         md = refs.get('tab3_date_entry').get().strip() if refs.get('tab3_date_entry') else ""
     except Exception:
         md = ""
 
-    # Compose display date when both year and month-day are present and valid
     display_date = None
     if md:
         try:
-            # parse month-day
             parsed_md = datetime.strptime(md, "%m-%d")
-            # determine year (use entered year if valid, else current year)
             try:
                 year_val = int(year_txt)
                 if year_val < 1:
@@ -266,7 +226,6 @@ def update_game_preview():
                 year_val = datetime.now().year
             display_date = _date(year_val, parsed_md.month, parsed_md.day).isoformat()
         except Exception:
-            # md invalid; keep raw md for display
             display_date = md
 
     if season and year_txt:
@@ -325,19 +284,10 @@ def update_game_preview():
         except Exception:
             pass
 
-
-# --- New helpers: season ranges validation ---
 def _season_range_for_year(season, year):
-    """
-    Return (start_date, end_date) for the given season and season-start year.
-    The 'year' parameter is treated as the season start year. For seasons that
-    end in the following calendar year (e.g., Regular Season), end_date will
-    be in year+1.
-    """
-    # mapping: (start_month, start_day), (end_month, end_day)
     mapping = {
         "Pre-season": ((9, 25), (10, 16)),
-        "Regular Season": ((10, 17), (4, 16)),  # crosses year boundary
+        "Regular Season": ((10, 17), (4, 16)),
         "Play-in": ((4, 17), (4, 24)),
         "Playoff": ((4, 25), (6, 8)),
         "Finals": ((6, 9), (6, 24)),
@@ -347,7 +297,6 @@ def _season_range_for_year(season, year):
         return None, None
     (sm, sd), (em, ed) = mapping[season]
     start = _date(year, sm, sd)
-    # if end month/day comes earlier in calendar than start -> it's in year+1
     if (em, ed) < (sm, sd):
         end = _date(year + 1, em, ed)
     else:
@@ -356,17 +305,9 @@ def _season_range_for_year(season, year):
 
 
 def _is_date_within_season(parsed_date, season, year_val):
-    """
-    Flexible check: Accept the parsed_date if it falls into either the season window
-    computed for year_val (treating `year_val` as season-start year) OR the window
-    computed for year_val-1. This makes the UI tolerant to whether the user supplies
-    the season-start year or the calendar year of the date.
-    Returns (True, "") when valid; (False, message) when invalid.
-    """
     if not season or season == "Select":
         return True, ""
 
-    # Try both interpretations: season starting in year_val, and season starting in year_val-1
     tries = []
     for y in (year_val, year_val - 1):
         start, end = _season_range_for_year(season, y)
@@ -377,16 +318,12 @@ def _is_date_within_season(parsed_date, season, year_val):
         if start <= parsed_date <= end:
             return True, ""
 
-    # If none matched, prepare friendly message showing canonical window for display.
-    # Prefer showing canonical window where season-start is year_val if mapping exists,
-    # otherwise fall back to the first available try.
     if tries:
         start, end = tries[0]
         msg = f"Selected season '{season}' accepts dates between {start.isoformat()} and {end.isoformat()}."
     else:
         msg = f"Unknown season '{season}'."
     return False, msg
-
 
 def schedule_game():
     t1 = refs.get('tab3_team1_opt').get() if refs.get('tab3_team1_opt') else None
@@ -411,14 +348,12 @@ def schedule_game():
         messagebox.showwarning("Invalid", "Teams must be different.")
         return
 
-    # parse month-day
     try:
         parsed_md = datetime.strptime(md, "%m-%d")
     except Exception:
         messagebox.showwarning("Invalid", "Month-Day must be in MM-DD format (e.g. 03-15).")
         return
 
-    # parse year
     try:
         year_val = int(year_txt)
         if year_val < 1 or year_val > 9999:
@@ -427,14 +362,12 @@ def schedule_game():
         messagebox.showwarning("Invalid", "Year must be a valid integer (e.g. 2025).")
         return
 
-    # build full date
     try:
         parsed_date = _date(year_val, parsed_md.month, parsed_md.day)
     except Exception:
         messagebox.showwarning("Invalid", "Combined Year and Month-Day produce an invalid date.")
         return
 
-    # --- NEW: Enforce season-based valid date ranges ---
     try:
         season = refs.get('tab3_season_opt').get() if refs.get('tab3_season_opt') else None
     except Exception:
@@ -445,7 +378,6 @@ def schedule_game():
         messagebox.showwarning("Invalid Date for Season", msg)
         return
 
-    # parse times
     try:
         start_time = datetime.strptime(start, "%H:%M").time()
         end_time = datetime.strptime(end, "%H:%M").time()
@@ -459,10 +391,8 @@ def schedule_game():
         messagebox.showwarning("Invalid", "End time must be after start time.")
         return
 
-    # Enforce exact 12-player teams for scheduling (UI already filters, but double-check here)
     required_size = 12
 
-    # lookup roster lengths (teams dict is wired in by mainGui)
     roster1 = teams.get(t1, [])
     roster2 = teams.get(t2, [])
     len1 = len(roster1) if roster1 is not None else 0
@@ -478,7 +408,6 @@ def schedule_game():
             messagebox.showwarning("Invalid Teams", f"Both teams must have exactly {req} players to schedule a game.\nSelected teams have: {t1}={len1}, {t2}={len2}.")
             return
 
-    # Persist to DB: find ids for team names and venue
     cur = sched_mgr.mydb.cursor()
     try:
         cur.execute("SELECT id FROM teams WHERE teamName = ?", (t1,))
@@ -494,7 +423,6 @@ def schedule_game():
         away_id = away['id']
         venue_id = venue_row['id']
 
-        # Insert game and then update times using the combined date
         game_id = sched_mgr.scheduleGame(home_id, away_id, venue_id, parsed_date.isoformat())
         sched_mgr.updateGame(game_id, home_id, away_id, venue_id, parsed_date.isoformat(), start_time.strftime("%H:%M"), end_time.strftime("%H:%M"))
     finally:
@@ -503,7 +431,6 @@ def schedule_game():
         except Exception:
             pass
 
-    # reload scheduled games from DB and refresh UI
     load_scheduled_games_from_db()
     try:
         from viewGamesTab import refresh_scheduled_games_table as _refresh_table

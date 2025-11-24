@@ -3,7 +3,6 @@ from tkinter import messagebox
 from datetime import date as _date, datetime
 from theDB import mydb
 
-# Reuse canonical season helper from scheduleGameTab when possible
 try:
     from scheduleGameTab import _season_range_for_year
 except Exception:
@@ -29,14 +28,13 @@ except Exception:
 
 refs = {}
 
-# Internal widget and state holders for partial refreshes
 _widgets = {
     "container": None,
     "content": None,
     "standings_frame": None,
     "mvp_frame": None,
-    "team_map": {},        # name -> id
-    "player_mappings": {}, # option_widget -> {display: id}
+    "team_map": {},
+    "player_mappings": {},
     "team_opt": None,
     "player_opt": None,
     "year_opt": None,
@@ -46,23 +44,15 @@ _widgets = {
     "current_lbl": None,
     "assign_btn": None,
     "clear_btn": None,
-    # new: year display -> season-start-year mapping (strings)
     "year_display_map": {},
 }
-
 
 def _season_windows_for_year(year):
     start, _ = _season_range_for_year("Pre-season", year)
     _, end = _season_range_for_year("Off-season", year + 1)
     return start, end
 
-
 def _compute_season_start_years_with_games():
-    """
-    Determine season-start years that have at least one scheduled game within
-    their season window (Pre-season of year -> Off-season of year+1).
-    Returns list of integers (years), newest first.
-    """
     cursor = mydb.cursor()
     try:
         cursor.execute("SELECT MIN(substr(game_date,1,4)) as miny, MAX(substr(game_date,1,4)) as maxy FROM games WHERE game_date IS NOT NULL")
@@ -82,7 +72,6 @@ def _compute_season_start_years_with_games():
             return []
 
         years_with_games = []
-        # Check season-start candidates from miny-1 .. maxy to account for windows crossing years
         start_candidate = max(1900, miny - 1)
         end_candidate = maxy
 
@@ -102,20 +91,12 @@ def _compute_season_start_years_with_games():
 
 
 def _format_season_header(year):
-    """
-    Format the season header showing the end-year as the season label.
-    Example: season-start year = 2024 -> "Season 2025 — 2024-09-25 → 2025-09-24"
-    """
     s, e = _season_windows_for_year(year)
     end_year = e.year if e is not None else year
     return f"Season {end_year} — {s.isoformat()} → {e.isoformat()}"
 
 
 def refresh_standings_table(container):
-    """
-    Build the standings view and MVP controls container (only once per container).
-    Subsequent updates should call refresh_standings_rows() and refresh_mvp_controls().
-    """
     _widgets["container"] = container
 
     for w in container.winfo_children():
@@ -134,7 +115,7 @@ def refresh_standings_table(container):
         pass
     _widgets["content"] = content
 
-    standings_frame = ctk.CTkScrollableFrame(content, width=700, fg_color="#0F0F0F")
+    standings_frame = ctk.CTkScrollableFrame(content, width=700, height = 450, fg_color="#0F0F0F")
     standings_frame.grid(row=0, column=0, sticky="nsew", padx=(0,8), pady=4)
     _widgets["standings_frame"] = standings_frame
 
@@ -154,11 +135,6 @@ def refresh_standings_table(container):
 
 
 def refresh_standings_rows():
-    """
-    Refresh only the standings rows (left side).
-    Groups standings by season-start year (Pre-season..next year's Off-season),
-    newest season first. Only teams that played within the season window are shown.
-    """
     standings_frame = _widgets.get("standings_frame")
     if not standings_frame:
         container = _widgets.get("container")
@@ -287,7 +263,6 @@ def refresh_standings_rows():
             ctk.CTkLabel(row_frame, text=str(losses)).grid(row=0, column=3, padx=8, pady=6, sticky="w")
             ctk.CTkLabel(row_frame, text=str(total_points)).grid(row=0, column=4, padx=8, pady=6, sticky="w")
 
-
 def build_mvp_panel():
     """
     Build the MVP panel (right side). Constructed once; refresh_mvp_controls updates values.
@@ -362,8 +337,6 @@ def build_mvp_panel():
 
     refresh_mvp_controls()
 
-
-# Data loaders (compact and non-redundant)
 def load_team_map():
     cur = mydb.cursor()
     try:
@@ -382,7 +355,6 @@ def load_team_map():
             cur.close()
         except Exception:
             pass
-
 
 def load_players_for_team(team_id):
     if not team_id:
@@ -408,10 +380,8 @@ def load_players_for_team(team_id):
 
 def load_years():
     years = _compute_season_start_years_with_games()
-    return years  # return as integers (season-start years)
+    return years
 
-
-# --------- MVP handlers (updated to use display->season-start-year mapping) ---------
 def on_team_change(*_):
     team_var = _widgets.get("team_var")
     player_opt = _widgets.get("player_opt")
@@ -446,18 +416,12 @@ def on_team_change(*_):
             except Exception:
                 pass
 
-
 def on_year_change(*_):
-    """
-    Show current MVP for selected year and set team/player selection if present.
-    Now the year selector displays season labels (based on season window end-year),
-    so we map the selected display back to the season-start-year integer used in DB.
-    """
     year_var = _widgets.get("year_var")
     if not year_var:
         return
     selected_display = year_var.get()
-    # convert display to season-start-year (int) using mapping
+
     year_map = _widgets.get("year_display_map", {}) or {}
     season_start_year = None
     if selected_display and selected_display != "Select Season":
@@ -467,15 +431,14 @@ def on_year_change(*_):
     team_var = _widgets.get("team_var")
     player_var = _widgets.get("player_var")
 
-    # default label
     if current_lbl:
         current_lbl.configure(text="Current MVP: —")
-    # reset team/player selection
+
     if team_var:
         team_var.set("Select Team")
     if player_var:
         player_var.set("Select Player")
-    # refresh player options to placeholder
+
     try:
         player_opt = _widgets.get("player_opt")
         if player_opt:
@@ -487,7 +450,6 @@ def on_year_change(*_):
     if not season_start_year:
         return
 
-    # Query for MVP in that season-start-year
     cur = mydb.cursor()
     try:
         cur.execute("""
@@ -538,13 +500,7 @@ def on_year_change(*_):
         except Exception:
             pass
 
-
 def refresh_mvp_controls():
-    """
-    Refresh only the MVP controls (teams list, years list, and current MVP display).
-    The year dropdown now displays season labels in the same logic used for the standings groups.
-    Internally selections map back to season-start-year integers for DB operations.
-    """
     mvp_frame = _widgets.get("mvp_frame")
     if not mvp_frame:
         container = _widgets.get("container")
@@ -552,7 +508,6 @@ def refresh_mvp_controls():
             refresh_standings_table(container)
         return
 
-    # Load team map and update option values
     team_names, team_map = load_team_map()
     _widgets["team_map"] = team_map
     team_values = ["Select Team"] + team_names
@@ -563,20 +518,16 @@ def refresh_mvp_controls():
         except Exception:
             pass
 
-    # Build year display list from season-start years
     season_start_years = load_years() or []
     display_list = []
     display_map = {}
     for y in season_start_years:
-        # create same header-style display but keep it short for the dropdown
         s, e = _season_windows_for_year(y)
         end_year = e.year if e else y
-        # Use the same end-year label as the header, include start/end dates to be explicit
         display = f"Season {end_year} — {s.isoformat()} → {e.isoformat()}"
         display_list.append(display)
-        display_map[display] = y  # map display -> season-start-year
+        display_map[display] = y
 
-    # store mapping for later conversions
     _widgets["year_display_map"] = display_map
 
     year_values_display = ["Select Season"] + display_list
@@ -587,7 +538,6 @@ def refresh_mvp_controls():
         except Exception:
             pass
 
-    # If selected year display is no longer valid, reset
     try:
         curr = _widgets.get("year_var").get()
     except Exception:
@@ -599,21 +549,16 @@ def refresh_mvp_controls():
         except Exception:
             pass
 
-    # Trigger on_year_change to refresh current MVP and selections (if applicable)
     on_year_change()
 
 
 def assign_mvp():
-    """
-    Assign the selected player as MVP for the selected season (mapped to season-start-year).
-    """
     year_var = _widgets.get("year_var")
     player_opt = _widgets.get("player_opt")
     player_var = _widgets.get("player_var")
     team_var = _widgets.get("team_var")
     team_map = _widgets.get("team_map") or {}
 
-    # Map displayed selection back to season-start-year integer
     selected_display = year_var.get() if year_var else None
     display_map = _widgets.get("year_display_map") or {}
     season_start_year = display_map.get(selected_display)
@@ -671,9 +616,6 @@ def assign_mvp():
 
 
 def clear_mvp():
-    """
-    Clear the MVP for the selected season (mapped to season-start-year), then refresh.
-    """
     year_var = _widgets.get("year_var")
     selected_display = year_var.get() if year_var else None
     display_map = _widgets.get("year_display_map") or {}

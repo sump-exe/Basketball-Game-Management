@@ -3,22 +3,14 @@ from tkinter import messagebox
 from datetime import datetime
 from theDB import *
 
-# NOTE: This module doesn't import mainGui or other UI modules to avoid circular imports.
-# mainGui.py will set the following attributes on this module after importing it:
-#   app, sched_mgr, refs, update_schedule_optionmenus
-#
 app = None
 sched_mgr = None
 refs = {}
 update_schedule_optionmenus = lambda *a, **k: None
 
-# tab 2 - venues
-
-# Data stores
-venues = {}  # { "VenueName": {"address": str, "capacity": int, "available": bool} }
+venues = {}
 
 def load_venues_from_db():
-    """Populate the in-memory `venues` dict from the DB (venueName -> {address, capacity, available})."""
     venues.clear()
     cur = sched_mgr.mydb.cursor()
     cur.execute("SELECT id, venueName, location, capacity FROM venues ORDER BY venueName")
@@ -28,7 +20,6 @@ def load_venues_from_db():
     cur.close()
 
 def refresh_venue_sidebar(sidebar_scrollable, venue_buttons_list, search_var=None):
-    """Rebuild venue buttons in sidebar, with optional filtering"""
     for btn in list(venue_buttons_list):
         try:
             btn.destroy()
@@ -44,12 +35,10 @@ def refresh_venue_sidebar(sidebar_scrollable, venue_buttons_list, search_var=Non
             data = venues.get(v, {})
             address = str(data.get("address", "")).lower()
             capacity = str(data.get("capacity", ""))
-            # match by name, address (location) or capacity (partial match allowed)
             if query in v.lower() or query in address or query in capacity:
                 filtered.append(v)
         venue_names = filtered
 
-    # Sort if needed (default alphabetical)
     venue_names.sort()
 
     for v in venue_names:
@@ -60,7 +49,6 @@ def refresh_venue_sidebar(sidebar_scrollable, venue_buttons_list, search_var=Non
         venue_buttons_list.append(b)
 
 def show_venue_details(venue_name):
-    # clear details area
     frame = refs.get('venue_details_frame')
     if not frame:
         return
@@ -73,7 +61,6 @@ def show_venue_details(venue_name):
     ctk.CTkLabel(frame, text=f"Address: {v['address']}", anchor="w").pack(fill="x", padx=12, pady=4)
     ctk.CTkLabel(frame, text=f"Capacity: {v['capacity']}", anchor="w").pack(fill="x", padx=12, pady=4)
 
-    # availability toggle
     avail_var = ctk.BooleanVar(value=v.get("available", True))
     def toggle_avail():
         venues[venue_name]["available"] = avail_var.get()
@@ -81,7 +68,6 @@ def show_venue_details(venue_name):
     chk = ctk.CTkCheckBox(frame, text="Available", variable=avail_var, command=toggle_avail)
     chk.pack(pady=12)
 
-    # Edit / Delete buttons
     btn_frame = ctk.CTkFrame(frame, fg_color="#333333")
     btn_frame.pack(pady=10, padx=8, fill="x")
 
@@ -95,7 +81,6 @@ def show_venue_details(venue_name):
                 refresh_venue_sidebar(refs.get('venues_sidebar_scroll'), refs.get('venues_buttons'), refs.get('venues_search_var'))
             except Exception:
                 pass
-            # clear details
             for w in frame.winfo_children():
                 w.destroy()
             update_schedule_optionmenus(refs.get('tab3_team1_opt'), refs.get('tab3_team2_opt'), refs.get('tab3_venue_opt'))
@@ -142,16 +127,13 @@ def open_add_venue_popup(prefill_name=None):
         cap_int = int(cap)
 
         if editing and original_name and original_name != name:
-            # rename: remove old key
             venues.pop(original_name, None)
-        # create Venue object and save to DB
         try:
             v = Venue(name, addr, cap_int)
             sched_mgr.addVenue(v)
         except Exception:
             messagebox.showwarning("Error", "Could not save venue (it may already exist).")
             return
-        # reload venues from DB and refresh UI
         load_venues_from_db()
         try:
             refresh_venue_sidebar(refs.get('venues_sidebar_scroll'), refs.get('venues_buttons'), refs.get('venues_search_var'))

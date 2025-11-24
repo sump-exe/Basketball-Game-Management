@@ -1,16 +1,13 @@
 import sqlite3
 from pathlib import Path
 
-# Use a local sqlite file for portability
 DB_FILE = Path(__file__).with_name('sports_schedule.db')
 
-# Connect and ensure foreign keys enabled
 mydb = sqlite3.connect(str(DB_FILE))
 mydb.row_factory = sqlite3.Row
 cur = mydb.cursor()
 cur.execute("PRAGMA foreign_keys = ON")
 
-# Create tables (SQLite types and AUTOINCREMENT)
 cur.execute("""
 CREATE TABLE IF NOT EXISTS teams (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,18 +25,15 @@ CREATE TABLE IF NOT EXISTS players (
     FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 )
 """)
-# Ensure jerseyNumber can be NULL going forward. If the column is declared NOT NULL,
-# migrate the table so jerseyNumber becomes nullable (preserving existing data).
+
 cur_m = mydb.cursor()
 cols_info = cur_m.execute("PRAGMA table_info(players)").fetchall()
 jersey_col = None
 for c in cols_info:
-    # PRAGMA table_info returns: cid, name, type, notnull, dflt_value, pk
     if c[1] == 'jerseyNumber':
         jersey_col = c
         break
 if jersey_col and jersey_col[3] == 1:
-    # Perform migration: create new table with jerseyNumber nullable, copy data
     cur_m.execute("""
     CREATE TABLE IF NOT EXISTS players_new (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,7 +44,6 @@ if jersey_col and jersey_col[3] == 1:
         FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
     )
     """)
-    # Copy data, convert 0 -> NULL for jerseyNumber (assumes 0 was previously used as placeholder)
     cur_m.execute("INSERT INTO players_new (id, name, jerseyNumber, points, team_id) SELECT id, name, NULLIF(jerseyNumber, 0), points, team_id FROM players")
     cur_m.execute("DROP TABLE players")
     cur_m.execute("ALTER TABLE players_new RENAME TO players")
@@ -78,7 +71,6 @@ CREATE TABLE IF NOT EXISTS games (
     FOREIGN KEY (venue_id) REFERENCES venues(id)
 )
 """)
-# Ensure start_time and end_time columns exist (added later as TEXT)
 cur2 = mydb.cursor()
 cols = [r[1] for r in cur2.execute("PRAGMA table_info(games)").fetchall()]
 
@@ -87,7 +79,6 @@ if 'start_time' not in cols:
 if 'end_time' not in cols:
     cur2.execute("ALTER TABLE games ADD COLUMN end_time TEXT DEFAULT '00:00'")
 
-# New: ensure is_final and winner_team_id columns exist to mark finished games and winner
 cols = [r[1] for r in cur2.execute("PRAGMA table_info(games)").fetchall()]
 if 'is_final' not in cols:
     cur2.execute("ALTER TABLE games ADD COLUMN is_final INTEGER DEFAULT 0")
@@ -112,9 +103,7 @@ cur.close()
 
 class ScheduleManager:
     def __init__(self):
-        self.mydb = mydb  # Use the global connection
-        # No need for in-memory lists/dicts; data will be queried from DB as needed
-
+        self.mydb = mydb 
     def addTeam(self, team):
         if isinstance(team, Team):
             cursor = self.mydb.cursor()
@@ -192,7 +181,6 @@ class ScheduleManager:
 
     def scheduleGame(self, home_team_id, away_team_id, venue_id, game_date):
         cursor = self.mydb.cursor()
-        # Insert with optional start/end fields (use defaults if missing)
         cursor.execute("INSERT INTO games (home_team_id, away_team_id, venue_id, game_date, start_time, end_time) VALUES (?, ?, ?, ?, ?, ?)", 
                        (home_team_id, away_team_id, venue_id, game_date, '00:00', '00:00'))
         self.mydb.commit()
@@ -241,7 +229,6 @@ class ScheduleManager:
         home_id = row['home_team_id']
         away_id = row['away_team_id']
 
-        # Sum player points by team
         cursor.execute("SELECT SUM(points) as s FROM players WHERE team_id = ?", (home_id,))
         hrow = cursor.fetchone()
         home_sum = hrow['s'] if hrow and hrow['s'] is not None else 0
@@ -256,9 +243,7 @@ class ScheduleManager:
         elif away_sum > home_sum:
             winner = away_id
         else:
-            winner = None  # tie
-
-        # Persist result
+            winner = None 
         cursor.execute("UPDATE games SET is_final = 1, winner_team_id = ? WHERE id = ?", (winner, game_id))
         self.mydb.commit()
         cursor.close()
@@ -270,20 +255,19 @@ class Venue:
         self.venueName = venueName
         self.location = location
         self.capacity = capacity
-        self.venueID = venueID  # Will be set when added to DB
+        self.venueID = venueID
     def checkAvailability(self, date):
-        # Check if venue is booked on a given date
         cursor = mydb.cursor()
         cursor.execute("SELECT COUNT(*) FROM games WHERE venue_id = ? AND game_date = ?", (self.venueID, date))
         count = cursor.fetchone()[0]
         cursor.close()
-        return count == 0  # True if available
+        return count == 0
 
 class Team:
     def __init__(self, teamName, teamID=None):
         self.teamName = teamName
         self.id = teamID
-        self.totalPoints = 0  # Initialize to 0
+        self.totalPoints = 0
     def addPlayer(self, player):
         if isinstance(player, Player):
             cursor = mydb.cursor()
@@ -331,7 +315,7 @@ class Player:
     def __init__(self, name, jerseyNumber, playerID=None):
         self.name = name
         self.jerseyNumber = jerseyNumber
-        self.points = 0  # Initialize to 0
+        self.points = 0
         self.id = playerID
     def addPoints(self, p):
         self.points += p
@@ -339,7 +323,6 @@ class Player:
         cursor.execute("UPDATE players SET points = ? WHERE id = ?", (self.points, self.id))
         mydb.commit()
         cursor.close()
-        # Note: After updating points, the team's totalPoints should be recalculated, but that's handled in Team.calcTotalPoints
 
 class MVP(Player):
     def __init__(self, name, jerseyNumber, year, playerID):

@@ -3,15 +3,10 @@ from tkinter import messagebox
 from datetime import datetime, date as _date
 from theDB import mydb, ScheduleManager
 
-# This module displays and edits scheduled games.
-# mainGui will set:
-#   refs, scheduled_games (from scheduleGameTab), show_game_details (from scheduleGameTab),
-#   edit and delete functions are contained here.
 refs = {}
 scheduled_games = []
-show_game_details = lambda i: None  # will be set by mainGui to scheduleGameTab.show_game_details
+show_game_details = lambda i: None  
 
-# Try to reuse canonical season helper from scheduleGameTab if available
 try:
     from scheduleGameTab import _season_range_for_year
 except Exception:
@@ -43,12 +38,10 @@ def _season_windows_for_year(year):
 
 
 def _season_from_iso(date_iso):
-    """Safe wrapper to parse ISO date string (YYYY-MM-DD) and return season name."""
     try:
         dt = datetime.strptime(date_iso, "%Y-%m-%d").date()
     except Exception:
         return ""
-    # use the canonical detection (tries anchor at dt.year and dt.year-1)
     seasons = [
         "Pre-season",
         "Regular Season",
@@ -68,7 +61,6 @@ def _season_from_iso(date_iso):
 
 
 def _parse_iso(date_iso):
-    """Return date object or None for invalid/empty input."""
     try:
         if not date_iso:
             return None
@@ -78,12 +70,6 @@ def _parse_iso(date_iso):
 
 
 def _compute_season_start_years_with_games():
-    """
-    Determine season-start years that have at least one scheduled game within
-    their season window (Pre-season of year -> Off-season of year+1).
-    This follows the same DB-driven logic used in standingsTab.
-    Returns list of ints (years), newest first.
-    """
     cur = mydb.cursor()
     try:
         cur.execute("SELECT MIN(substr(game_date,1,4)) as miny, MAX(substr(game_date,1,4)) as maxy FROM games WHERE game_date IS NOT NULL")
@@ -122,14 +108,12 @@ def _compute_season_start_years_with_games():
 
 
 def _format_season_header(year):
-    """Format the season header using the season window end-year as the label."""
     s, e = _season_windows_for_year(year)
     end_year = e.year if e is not None else year
     return f"Season {end_year} — {s.isoformat()} → {e.isoformat()}"
 
 
 def on_view_click(index, game):
-    """Called when the View button is pressed."""
     # Set selected game
     refs["selected_game"] = {
         "id": game.get("id"),
@@ -141,14 +125,12 @@ def on_view_click(index, game):
     if not panel:
         return
 
-    # Clear the panel (we are replacing its contents)
     for w in panel.winfo_children():
         try:
             w.destroy()
         except Exception:
             pass
 
-    # --- RECREATE THE DETAILS LABEL ---
     details_label = ctk.CTkLabel(
         panel,
         text="Loading...",
@@ -157,10 +139,8 @@ def on_view_click(index, game):
     )
     details_label.pack(fill="both", expand=True, padx=10, pady=10)
 
-    # Replace old label reference
     refs["details_content"] = details_label
 
-    # Defer calling show_game_details to next event loop turn to avoid first-click missing configure
     try:
         app_widget = refs.get('app')
         if hasattr(app_widget, 'after'):
@@ -173,7 +153,6 @@ def on_view_click(index, game):
         except Exception:
             pass
 
-    # Mark selected game again
     refs["selected_game"] = {
         "id": game.get("id"),
         "team1_id": game.get("team1_id"),
@@ -182,49 +161,36 @@ def on_view_click(index, game):
 
 
 def refresh_scheduled_games_table(table_frame):
-    """
-    Refresh the table of scheduled games grouped by season-start year (Pre-season..next year's Off-season).
-    Uses the same season-window logic as standingsTab.py so grouping is consistent across views.
-    """
-    # Clear existing rows
     for widget in table_frame.winfo_children():
         try:
             widget.destroy()
         except Exception:
             pass
-
-    # Build id -> index map from the in-memory scheduled_games list so Edit/Delete/View callbacks keep working
     id_to_index = {}
     for idx, g in enumerate(scheduled_games):
         gid = g.get('id')
         if gid is not None:
             id_to_index[gid] = idx
 
-    # Determine season-start years that have games (newest first) using DB-driven logic to match standings
     years = _compute_season_start_years_with_games()
 
     if not years:
-        # Fallback header
         header_frame = ctk.CTkFrame(table_frame, fg_color="#1F1F1F")
         header_frame.pack(fill="x", padx=8, pady=4)
         ctk.CTkLabel(header_frame, text="No scheduled seasons found.", font=ctk.CTkFont(size=14, weight="bold")).pack(padx=8, pady=8)
         return
 
-    # For each season-start year, render a block
     for year in years:
         start_dt, end_dt = _season_windows_for_year(year)
 
-        # Season header (label uses end-year like standings)
         header_frame = ctk.CTkFrame(table_frame, fg_color="#1E1E1E")
         header_frame.pack(fill="x", padx=8, pady=(12, 6))
         header_frame.grid_columnconfigure(0, weight=1)
         header_lbl = ctk.CTkLabel(header_frame, text=_format_season_header(year), font=ctk.CTkFont(size=14, weight="bold"))
         header_lbl.grid(row=0, column=0, sticky="w", padx=8, pady=6)
 
-        # Column headers (matching the row grid configuration for alignment)
         cols = ctk.CTkFrame(table_frame, fg_color="#1F1F1F")
         cols.pack(fill="x", padx=8, pady=(0, 4))
-        # configure 10 columns: first 7 flexible, last 3 action columns fixed
         for ci in range(10):
             cols.grid_columnconfigure(ci, weight=(1 if ci <= 6 else 0))
         ctk.CTkLabel(cols, text="Team 1", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, padx=8, pady=4, sticky="w")
@@ -238,14 +204,12 @@ def refresh_scheduled_games_table(table_frame):
         ctk.CTkLabel(cols, text="Edit", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=8, padx=8, pady=4, sticky="w")
         ctk.CTkLabel(cols, text="Delete", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=9, padx=8, pady=4, sticky="w")
 
-        # Collect games (from the in-memory scheduled_games) whose dates fall in this season window
         group_games = []
         for g in scheduled_games:
             dt = _parse_iso(g.get('date'))
             if dt and start_dt <= dt <= end_dt:
                 group_games.append(g)
 
-        # Sort by date then start time
         def _sort_key(g):
             dt = _parse_iso(g.get('date')) or _date.min
             st = g.get('start') or '00:00'
@@ -257,14 +221,12 @@ def refresh_scheduled_games_table(table_frame):
             empty_lbl.pack(fill="x", padx=16, pady=(6, 8))
             continue
 
-        # Render rows for this group
         for game in group_games:
             gid = game.get('id')
             idx = id_to_index.get(gid, None)
             row_frame = ctk.CTkFrame(table_frame, fg_color="#2A2A2A")
             row_frame.pack(fill="x", padx=8, pady=2)
 
-            # Align row grid columns with header columns
             for ci in range(10):
                 row_frame.grid_columnconfigure(ci, weight=(1 if ci <= 6 else 0))
 
@@ -278,7 +240,6 @@ def refresh_scheduled_games_table(table_frame):
 
             ctk.CTkLabel(row_frame, text=f"{game.get('start', '00:00')} - {game.get('end', '00:00')}").grid(row=0, column=5, padx=8, pady=4, sticky="w")
 
-            # Status label: query DB for is_final for this game id
             try:
                 cursor = mydb.cursor()
                 try:
@@ -299,7 +260,6 @@ def refresh_scheduled_games_table(table_frame):
                 status_lbl = ctk.CTkLabel(row_frame, text="Active", text_color="#7CFC00")
             status_lbl.grid(row=0, column=6, padx=8, pady=4, sticky="w")
 
-            # View button (preserve behavior)
             if idx is not None:
                 view_btn = ctk.CTkButton(row_frame, text="View", width=60, height=30,
                                         command=lambda i=idx, g=game: on_view_click(i, g),
@@ -310,7 +270,6 @@ def refresh_scheduled_games_table(table_frame):
                                         hover_color="#4A90E2", fg_color="#1F75FE")
             view_btn.grid(row=0, column=7, padx=4, pady=4, sticky="w")
 
-            # Edit button
             if idx is not None:
                 edit_btn = ctk.CTkButton(row_frame, text="Edit", width=60, height=30,
                                          command=lambda i=idx: edit_scheduled_game(i),
@@ -321,7 +280,6 @@ def refresh_scheduled_games_table(table_frame):
                                          hover_color="#FFA500", fg_color="#4CAF50")
             edit_btn.grid(row=0, column=8, padx=4, pady=4)
 
-            # Delete button
             if idx is not None:
                 delete_btn = ctk.CTkButton(row_frame, text="Delete", width=60, height=30,
                                            command=lambda i=idx: delete_scheduled_game(i),
@@ -367,7 +325,6 @@ def edit_scheduled_game(index):
         t2 = team2_entry.get().strip()
         v = venue_entry.get().strip()
         d = date_entry.get().strip()
-        # validate inputs
         try:
             from teamsTab import teams as _teams
             from venuesTab import venues as _venues
@@ -377,13 +334,11 @@ def edit_scheduled_game(index):
         if not all([t1, t2, v, d]) or t1 == t2 or t1 not in _teams or t2 not in _teams or v not in _venues:
             messagebox.showwarning("Invalid", "Please fill all fields correctly and ensure teams/venue exist.")
             return
-        # validate date format
         try:
             _ = datetime.strptime(d, "%Y-%m-%d")
         except Exception:
             messagebox.showwarning("Invalid", "Date must be in YYYY-MM-DD format.")
             return
-        # Persist edit to DB if possible
         game = scheduled_games[index]
         game_id = game.get('id')
         start = game.get('start', '00:00')
@@ -416,7 +371,6 @@ def edit_scheduled_game(index):
             except Exception:
                 pass
 
-        # reload from DB and refresh UI
         try:
             from scheduleGameTab import load_scheduled_games_from_db as _load
             _load()
