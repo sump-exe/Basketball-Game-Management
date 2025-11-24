@@ -10,4 +10,6 @@ remove redundant code added from scrapped files/blocks of code<br>
 Manually select MVP for each year<br>
 Group games in viewGamesTab.py by year (Pre-season to Off-season)<br>
 comfort features<br>
+change edit games pop-up in viewGamesTab.py
 </ul>
+
