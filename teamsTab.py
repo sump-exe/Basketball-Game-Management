@@ -32,6 +32,13 @@ def load_teams_from_db():
     cur.close()
 
 def show_team_players(team_name, players_frame):
+    # record currently shown team for other helpers (history popup, etc.)
+    try:
+        if isinstance(refs, dict):
+            refs['current_team'] = team_name
+    except Exception:
+        pass
+
     for w in players_frame.winfo_children():
         w.destroy()
 
@@ -87,6 +94,13 @@ def show_team_players(team_name, players_frame):
 
     del_btn = ctk.CTkButton(actions_frame, text="Delete Team", width=120, fg_color="#D9534F", hover_color="#FF6B6B", command=delete_team_cmd)
     del_btn.pack(side="right", padx=(6,0))
+
+    # New: History button in the team actions area
+    def open_team_history_cmd():
+        open_team_history_popup(team_name)
+
+    history_btn = ctk.CTkButton(actions_frame, text="View Games", width=120, fg_color="#1F75FE", hover_color="#4A90E2", command=open_team_history_cmd)
+    history_btn.pack(side="right", padx=(6,0))
 
     if teams.get(team_name):
         header_row = ctk.CTkFrame(players_frame, fg_color="#222222")
@@ -417,3 +431,123 @@ def open_add_team_popup(prefill_name=None):
 
     btn_text = "Save Changes" if prefill_name else "Add Team"
     ctk.CTkButton(win, text=btn_text, command=save_team, hover_color="#4A90E2").pack(pady=12)
+
+# -----------------------
+# New helper: show a team's game history in a popup
+# -----------------------
+def open_team_history_popup(team_name=None):
+    """Show a popup with the selected team's game history.
+    If team_name is None, attempts to use refs['current_team'] set by show_team_players.
+    """
+    sel_team = team_name or (refs.get('current_team') if isinstance(refs, dict) else None)
+    if not sel_team:
+        messagebox.showwarning("No Team Selected", "No team selected. Open a team first from the sidebar.")
+        return
+
+    cur = sched_mgr.mydb.cursor()
+    try:
+        cur.execute("SELECT id FROM teams WHERE teamName = ?", (sel_team,))
+        row = cur.fetchone()
+        if not row:
+            messagebox.showwarning("Not Found", "Team not found in database.")
+            return
+        team_id = row['id']
+
+        # Fetch games where this team was either home or away
+        cur.execute("""
+            SELECT
+                g.id,
+                g.home_team_id,
+                g.away_team_id,
+                t1.teamName AS home_name,
+                t2.teamName AS away_name,
+                v.venueName AS venue,
+                g.game_date,
+                g.start_time,
+                g.end_time,
+                g.is_final,
+                g.winner_team_id,
+                COALESCE(g.home_score, 0) AS home_score,
+                COALESCE(g.away_score, 0) AS away_score
+            FROM games g
+            LEFT JOIN teams t1 ON g.home_team_id = t1.id
+            LEFT JOIN teams t2 ON g.away_team_id = t2.id
+            LEFT JOIN venues v ON g.venue_id = v.id
+            WHERE g.home_team_id = ? OR g.away_team_id = ?
+            ORDER BY g.game_date DESC, g.start_time DESC
+        """, (team_id, team_id))
+        games = cur.fetchall()
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+    win = ctk.CTkToplevel(app)
+    win.title(f"Game History — {sel_team}")
+    win.geometry("700x420")
+    win.transient(app)
+
+    header = ctk.CTkLabel(win, text=f"Game History — {sel_team}", font=ctk.CTkFont(size=16, weight="bold"))
+    header.pack(pady=(12,6))
+
+    container = ctk.CTkScrollableFrame(win, width=660, height=320, fg_color="#0F0F0F")
+    container.pack(padx=12, pady=(6,12), fill="both", expand=True)
+
+    if not games:
+        ctk.CTkLabel(container, text="No games found for this team.", anchor="w", text_color="#BBBBBB").pack(padx=8, pady=8)
+        return
+
+    for g in games:
+        gid = g['id']
+        home = g['home_name'] or "Unknown"
+        away = g['away_name'] or "Unknown"
+        venue = g['venue'] or "Unknown"
+        date = g['game_date'] or ""
+        start = g['start_time'] or "00:00"
+        end = g['end_time'] or "00:00"
+        is_final = bool(g['is_final']) if 'is_final' in g.keys() else False
+        home_score = g['home_score'] if 'home_score' in g.keys() else 0
+        away_score = g['away_score'] if 'away_score' in g.keys() else 0
+
+        # Determine opponent and home/away
+        if g['home_team_id'] == team_id:
+            opponent = away
+            loc = "Home"
+            score_display = f"{home_score} - {away_score}"
+            won = (g['winner_team_id'] == team_id) if g['winner_team_id'] is not None else None
+        else:
+            opponent = home
+            loc = "Away"
+            score_display = f"{home_score} - {away_score}"
+            won = (g['winner_team_id'] == team_id) if g['winner_team_id'] is not None else None
+
+        status = "Ended" if is_final else "Active"
+        result = ""
+        if is_final:
+            if g['winner_team_id'] is None:
+                result = "Tie"
+            else:
+                result = "W" if won else "L"
+
+        row = ctk.CTkFrame(container, fg_color="#1F1F1F")
+        row.pack(fill="x", padx=8, pady=6)
+        row.grid_columnconfigure(0, weight=3)
+        row.grid_columnconfigure(1, weight=1)
+        row.grid_columnconfigure(2, weight=1)
+        row.grid_columnconfigure(3, weight=1)
+
+        ctk.CTkLabel(row, text=f"{date} {start}-{end}", anchor="w").grid(row=0, column=0, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(row, text=f"{loc} vs {opponent}", anchor="w").grid(row=0, column=1, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(row, text=venue, anchor="w").grid(row=0, column=2, padx=8, pady=4, sticky="w")
+        ctk.CTkLabel(row, text=f"{status}{(' • ' + result) if result else ''}", anchor="w").grid(row=0, column=3, padx=8, pady=4, sticky="w")
+
+        # small second-line with score when finalized
+        if is_final:
+            score_lbl = ctk.CTkLabel(row, text=f"Score: {score_display}", text_color="#FFD700")
+            score_lbl.grid(row=1, column=0, columnspan=4, sticky="w", padx=8, pady=(0,6))
+
+    # optional: provide a Close button
+    btn_frame = ctk.CTkFrame(win, fg_color="#181818")
+    btn_frame.pack(fill="x", padx=12, pady=(0,12))
+    ctk.CTkButton(btn_frame, text="Close", command=win.destroy, width=100).pack(side="right", padx=8, pady=8)
