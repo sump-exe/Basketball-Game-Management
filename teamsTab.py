@@ -187,7 +187,13 @@ def show_team_players(team_name, players_frame):
                             validated['ok'] = False
                             confirm_btn.configure(state="disabled")
                             return
-                        # Jersey is required and must be a positive integer
+                        # Player name length limit (1-50 characters)
+                        if len(new_name) > 50:
+                            msg_lbl.configure(text="Player name must be 50 characters or fewer.")
+                            validated['ok'] = False
+                            confirm_btn.configure(state="disabled")
+                            return
+                        # Jersey is required and must be a positive integer between 1 and 99
                         if jersey_txt == "":
                             msg_lbl.configure(text="Jersey number is required.")
                             validated['ok'] = False
@@ -199,8 +205,8 @@ def show_team_players(team_name, players_frame):
                             confirm_btn.configure(state="disabled")
                             return
                         new_jersey = int(jersey_txt)
-                        if new_jersey <= 0:
-                            msg_lbl.configure(text="Jersey number must be positive.")
+                        if new_jersey < 1 or new_jersey > 99:
+                            msg_lbl.configure(text="Jersey number must be between 1 and 99.")
                             validated['ok'] = False
                             confirm_btn.configure(state="disabled")
                             return
@@ -288,18 +294,23 @@ def show_team_players(team_name, players_frame):
             messagebox.showwarning("Missing", "Enter a player name.")
             return
 
-        # -------- JERSEY IS NOW REQUIRED --------
+        # Player name length limit (1-50 characters)
+        if len(name) > 50:
+            messagebox.showwarning("Invalid", "Player name must be 50 characters or fewer.")
+            return
+
+        # -------- JERSEY IS NOW REQUIRED AND LIMITED 1-99 --------
         jersey_text = jersey_entry.get().strip()
         if jersey_text == "":
             messagebox.showwarning("Missing", "Jersey number is required.")
             return
         if not jersey_text.isdigit():
-            messagebox.showwarning("Invalid", "Jersey number must be an integer.")
+            messagebox.showwarning("Invalid", "Jersey number must be an integer between 1 and 99.")
             return
 
         jersey_num = int(jersey_text)
-        if jersey_num <= 0:
-            messagebox.showwarning("Invalid", "Jersey number must be a positive integer.")
+        if jersey_num < 1 or jersey_num > 99:
+            messagebox.showwarning("Invalid", "Jersey number must be between 1 and 99.")
             return
         # -----------------------------------------
 
