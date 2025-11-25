@@ -364,6 +364,10 @@ def schedule_game():
 
     try:
         parsed_date = _date(year_val, parsed_md.month, parsed_md.day)
+        if parsed_date < _date.today():
+            messagebox.showwarning("Invalid Date", "You cannot schedule a game in the past.")
+            return
+
     except Exception:
         messagebox.showwarning("Invalid", "Combined Year and Month-Day produce an invalid date.")
         return
