@@ -1,8 +1,9 @@
 import customtkinter as ctk
 from tkinter import messagebox
-from theDB import mydb, ScheduleManager
+from theDB import *
 
 def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
+    # Clear parent
     for w in parent.winfo_children():
         try:
             w.destroy()
@@ -248,6 +249,7 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
         total_label.pack(pady=(10,12))
         team_total_labels[team_id] = total_label
 
+    # Render the two competing teams (no "home"/"away" semantics)
     render_team_column(left_frame, team1_id)
     render_team_column(right_frame, team2_id)
 

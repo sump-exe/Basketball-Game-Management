@@ -1,7 +1,7 @@
 import customtkinter as ctk
 from tkinter import messagebox
 from datetime import date as _date, datetime
-from theDB import mydb
+from theDB import *
 
 try:
     from scheduleGameTab import _season_range_for_year
@@ -217,14 +217,14 @@ def refresh_standings_rows():
                     COALESCE((SELECT COUNT(*) FROM games g WHERE g.is_final = 1 AND g.winner_team_id = t.id AND g.game_date BETWEEN ? AND ?), 0) AS wins,
                     COALESCE((SELECT COUNT(*) FROM games g
                               WHERE g.is_final = 1
-                                AND (g.home_team_id = t.id OR g.away_team_id = t.id)
+                                AND (g.team1_id = t.id OR g.team2_id = t.id)
                                 AND (g.winner_team_id IS NOT NULL AND g.winner_team_id != t.id)
                                 AND g.game_date BETWEEN ? AND ?
                              ), 0) AS losses
                 FROM teams t
                 WHERE EXISTS (
                     SELECT 1 FROM games g2
-                    WHERE (g2.home_team_id = t.id OR g2.away_team_id = t.id)
+                    WHERE (g2.team1_id = t.id OR g2.team2_id = t.id)
                       AND g2.game_date BETWEEN ? AND ?
                 )
                 ORDER BY wins DESC, totalPoints DESC, t.teamName COLLATE NOCASE

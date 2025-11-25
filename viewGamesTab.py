@@ -1,7 +1,7 @@
 import customtkinter as ctk
 from tkinter import messagebox
 from datetime import datetime, date as _date
-from theDB import mydb, ScheduleManager
+from theDB import *
 
 refs = {}
 scheduled_games = []
@@ -347,24 +347,24 @@ def edit_scheduled_game(index):
         cur = ScheduleManager().mydb.cursor()
         try:
             cur.execute("SELECT id FROM teams WHERE teamName = ?", (t1,))
-            home = cur.fetchone()
+            team1_row = cur.fetchone()
             cur.execute("SELECT id FROM teams WHERE teamName = ?", (t2,))
-            away = cur.fetchone()
+            team2_row = cur.fetchone()
             cur.execute("SELECT id FROM venues WHERE venueName = ?", (v,))
             venue_row = cur.fetchone()
-            if not home or not away or not venue_row:
+            if not team1_row or not team2_row or not venue_row:
                 messagebox.showwarning("Invalid", "Selected teams or venue not found in DB.")
                 return
-            home_id = home['id']
-            away_id = away['id']
+            team1_id = team1_row['id']
+            team2_id = team2_row['id']
             venue_id = venue_row['id']
 
             sm = ScheduleManager()
             if game_id:
-                sm.updateGame(game_id, home_id, away_id, venue_id, d, start, end)
+                sm.updateGame(game_id, team1_id, team2_id, venue_id, d, start, end)
             else:
-                new_id = sm.scheduleGame(home_id, away_id, venue_id, d)
-                sm.updateGame(new_id, home_id, away_id, venue_id, d, start, end)
+                new_id = sm.scheduleGame(team1_id, team2_id, venue_id, d)
+                sm.updateGame(new_id, team1_id, team2_id, venue_id, d, start, end)
         finally:
             try:
                 cur.close()

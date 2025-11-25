@@ -59,12 +59,12 @@ def show_team_players(team_name, players_frame):
                 messagebox.showwarning("Not found", "Team not found in database.")
                 return
             team_id = row['id']
-            cur.execute("SELECT COUNT(*) FROM games WHERE home_team_id = ? OR away_team_id = ?", (team_id, team_id))
+            cur.execute("SELECT COUNT(*) FROM games WHERE team1_id = ? OR team2_id = ?", (team_id, team_id))
             cnt = cur.fetchone()[0]
             if cnt and cnt > 0:
                 if not messagebox.askyesno("Team Has Games", f"Team has {cnt} scheduled game(s). Delete those games and the team? This cannot be undone."):
                     return
-                cur.execute("DELETE FROM games WHERE home_team_id = ? OR away_team_id = ?", (team_id, team_id))
+                cur.execute("DELETE FROM games WHERE team1_id = ? OR team2_id = ?", (team_id, team_id))
             cur.execute("DELETE FROM players WHERE team_id = ?", (team_id,))
             cur.execute("DELETE FROM teams WHERE id = ?", (team_id,))
             sched_mgr.mydb.commit()
@@ -453,27 +453,27 @@ def open_team_history_popup(team_name=None):
             return
         team_id = row['id']
 
-        # Fetch games where this team was either home or away
+        # Fetch games where this team was either team1 or team2
         cur.execute("""
             SELECT
                 g.id,
-                g.home_team_id,
-                g.away_team_id,
-                t1.teamName AS home_name,
-                t2.teamName AS away_name,
+                g.team1_id,
+                g.team2_id,
+                t1.teamName AS team1_name,
+                t2.teamName AS team2_name,
                 v.venueName AS venue,
                 g.game_date,
                 g.start_time,
                 g.end_time,
                 g.is_final,
                 g.winner_team_id,
-                COALESCE(g.home_score, 0) AS home_score,
-                COALESCE(g.away_score, 0) AS away_score
+                COALESCE(g.team1_score, 0) AS team1_score,
+                COALESCE(g.team2_score, 0) AS team2_score
             FROM games g
-            LEFT JOIN teams t1 ON g.home_team_id = t1.id
-            LEFT JOIN teams t2 ON g.away_team_id = t2.id
+            LEFT JOIN teams t1 ON g.team1_id = t1.id
+            LEFT JOIN teams t2 ON g.team2_id = t2.id
             LEFT JOIN venues v ON g.venue_id = v.id
-            WHERE g.home_team_id = ? OR g.away_team_id = ?
+            WHERE g.team1_id = ? OR g.team2_id = ?
             ORDER BY g.game_date DESC, g.start_time DESC
         """, (team_id, team_id))
         games = cur.fetchall()
@@ -500,26 +500,24 @@ def open_team_history_popup(team_name=None):
 
     for g in games:
         gid = g['id']
-        home = g['home_name'] or "Unknown"
-        away = g['away_name'] or "Unknown"
+        team1 = g['team1_name'] or "Unknown"
+        team2 = g['team2_name'] or "Unknown"
         venue = g['venue'] or "Unknown"
         date = g['game_date'] or ""
         start = g['start_time'] or "00:00"
         end = g['end_time'] or "00:00"
         is_final = bool(g['is_final']) if 'is_final' in g.keys() else False
-        home_score = g['home_score'] if 'home_score' in g.keys() else 0
-        away_score = g['away_score'] if 'away_score' in g.keys() else 0
+        t1_score = g['team1_score'] if 'team1_score' in g.keys() else 0
+        t2_score = g['team2_score'] if 'team2_score' in g.keys() else 0
 
-        # Determine opponent and home/away
-        if g['home_team_id'] == team_id:
-            opponent = away
-            loc = "Home"
-            score_display = f"{home_score} - {away_score}"
+        # Determine opponent
+        if g['team1_id'] == team_id:
+            opponent = team2
+            score_display = f"{t1_score} - {t2_score}"
             won = (g['winner_team_id'] == team_id) if g['winner_team_id'] is not None else None
         else:
-            opponent = home
-            loc = "Away"
-            score_display = f"{home_score} - {away_score}"
+            opponent = team1
+            score_display = f"{t1_score} - {t2_score}"
             won = (g['winner_team_id'] == team_id) if g['winner_team_id'] is not None else None
 
         status = "Ended" if is_final else "Active"
@@ -538,7 +536,8 @@ def open_team_history_popup(team_name=None):
         row.grid_columnconfigure(3, weight=1)
 
         ctk.CTkLabel(row, text=f"{date} {start}-{end}", anchor="w").grid(row=0, column=0, padx=8, pady=4, sticky="w")
-        ctk.CTkLabel(row, text=f"{loc} vs {opponent}", anchor="w").grid(row=0, column=1, padx=8, pady=4, sticky="w")
+        # show opponent name (no "Home"/"Away" semantics)
+        ctk.CTkLabel(row, text=f"vs {opponent}", anchor="w").grid(row=0, column=1, padx=8, pady=4, sticky="w")
         ctk.CTkLabel(row, text=venue, anchor="w").grid(row=0, column=2, padx=8, pady=4, sticky="w")
         ctk.CTkLabel(row, text=f"{status}{(' • ' + result) if result else ''}", anchor="w").grid(row=0, column=3, padx=8, pady=4, sticky="w")
 

@@ -19,18 +19,20 @@ def load_scheduled_games_from_db():
         """
         SELECT 
             g.id,
-            g.home_team_id,
-            g.away_team_id,
+            g.team1_id,
+            g.team2_id,
             t1.teamName AS team1,
             t2.teamName AS team2,
             v.venueName AS venue,
             g.game_date,
             g.start_time,
-            g.end_time
+            g.end_time,
+            g.team1_score,
+            g.team2_score
         FROM games g
-        JOIN teams t1 ON g.home_team_id = t1.id
-        JOIN teams t2 ON g.away_team_id = t2.id
-        JOIN venues v ON g.venue_id = v.id
+        LEFT JOIN teams t1 ON g.team1_id = t1.id
+        LEFT JOIN teams t2 ON g.team2_id = t2.id
+        LEFT JOIN venues v ON g.venue_id = v.id
         ORDER BY g.game_date
         """
     )
@@ -41,12 +43,14 @@ def load_scheduled_games_from_db():
             'id': r['id'],
             'team1': r['team1'],
             'team2': r['team2'],
-            'team1_id': r['home_team_id'],
-            'team2_id': r['away_team_id'],
+            'team1_id': r['team1_id'],
+            'team2_id': r['team2_id'],
             'venue': r['venue'],
             'date': r['game_date'],
             'start': r['start_time'] or '00:00',
-            'end': r['end_time'] or '00:00'
+            'end': r['end_time'] or '00:00',
+            'team1_score': r['team1_score'] if 'team1_score' in r.keys() else 0,
+            'team2_score': r['team2_score'] if 'team2_score' in r.keys() else 0
         })
 
     cur.close()
@@ -415,20 +419,20 @@ def schedule_game():
     cur = sched_mgr.mydb.cursor()
     try:
         cur.execute("SELECT id FROM teams WHERE teamName = ?", (t1,))
-        home = cur.fetchone()
+        team1_row = cur.fetchone()
         cur.execute("SELECT id FROM teams WHERE teamName = ?", (t2,))
-        away = cur.fetchone()
+        team2_row = cur.fetchone()
         cur.execute("SELECT id FROM venues WHERE venueName = ?", (v,))
         venue_row = cur.fetchone()
-        if not home or not away or not venue_row:
+        if not team1_row or not team2_row or not venue_row:
             messagebox.showwarning("Invalid", "Selected teams or venue not found in DB.")
             return
-        home_id = home['id']
-        away_id = away['id']
+        team1_id = team1_row['id']
+        team2_id = team2_row['id']
         venue_id = venue_row['id']
 
-        game_id = sched_mgr.scheduleGame(home_id, away_id, venue_id, parsed_date.isoformat())
-        sched_mgr.updateGame(game_id, home_id, away_id, venue_id, parsed_date.isoformat(), start_time.strftime("%H:%M"), end_time.strftime("%H:%M"))
+        game_id = sched_mgr.scheduleGame(team1_id, team2_id, venue_id, parsed_date.isoformat())
+        sched_mgr.updateGame(game_id, team1_id, team2_id, venue_id, parsed_date.isoformat(), start_time.strftime("%H:%M"), end_time.strftime("%H:%M"))
     finally:
         try:
             cur.close()

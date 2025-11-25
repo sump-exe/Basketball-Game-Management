@@ -8,6 +8,7 @@ mydb.row_factory = sqlite3.Row
 cur = mydb.cursor()
 cur.execute("PRAGMA foreign_keys = ON")
 
+# teams table
 cur.execute("""
 CREATE TABLE IF NOT EXISTS teams (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -15,40 +16,20 @@ CREATE TABLE IF NOT EXISTS teams (
     totalPoints INTEGER DEFAULT 0
 )
 """)
+
+# players table
 cur.execute("""
 CREATE TABLE IF NOT EXISTS players (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    jerseyNumber INTEGER NOT NULL,
+    jerseyNumber INTEGER,
     points INTEGER DEFAULT 0,
     team_id INTEGER,
     FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 )
 """)
 
-cur_m = mydb.cursor()
-cols_info = cur_m.execute("PRAGMA table_info(players)").fetchall()
-jersey_col = None
-for c in cols_info:
-    if c[1] == 'jerseyNumber':
-        jersey_col = c
-        break
-if jersey_col and jersey_col[3] == 1:
-    cur_m.execute("""
-    CREATE TABLE IF NOT EXISTS players_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        jerseyNumber INTEGER,
-        points INTEGER DEFAULT 0,
-        team_id INTEGER,
-        FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
-    )
-    """)
-    cur_m.execute("INSERT INTO players_new (id, name, jerseyNumber, points, team_id) SELECT id, name, NULLIF(jerseyNumber, 0), points, team_id FROM players")
-    cur_m.execute("DROP TABLE players")
-    cur_m.execute("ALTER TABLE players_new RENAME TO players")
-    mydb.commit()
-cur_m.close()
+# venues table
 cur.execute("""
 CREATE TABLE IF NOT EXISTS venues (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,35 +38,108 @@ CREATE TABLE IF NOT EXISTS venues (
     capacity INTEGER NOT NULL
 )
 """)
-cur.execute("""
-CREATE TABLE IF NOT EXISTS games (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    home_team_id INTEGER,
-    away_team_id INTEGER,
-    venue_id INTEGER,
-    game_date TEXT,
-    home_score INTEGER DEFAULT 0,
-    away_score INTEGER DEFAULT 0,
-    FOREIGN KEY (home_team_id) REFERENCES teams(id),
-    FOREIGN KEY (away_team_id) REFERENCES teams(id),
-    FOREIGN KEY (venue_id) REFERENCES venues(id)
-)
-""")
-cur2 = mydb.cursor()
-cols = [r[1] for r in cur2.execute("PRAGMA table_info(games)").fetchall()]
 
-if 'start_time' not in cols:
-    cur2.execute("ALTER TABLE games ADD COLUMN start_time TEXT DEFAULT '00:00'")
-if 'end_time' not in cols:
-    cur2.execute("ALTER TABLE games ADD COLUMN end_time TEXT DEFAULT '00:00'")
+# Perform migration for games table if it still uses home_/away_ columns or old score columns.
+# New schema uses team1_id, team2_id and team1_score, team2_score to avoid home/away semantics.
+cur_m = mydb.cursor()
+existing_cols = [r[1] for r in cur_m.execute("PRAGMA table_info(games)").fetchall()]
 
-cols = [r[1] for r in cur2.execute("PRAGMA table_info(games)").fetchall()]
-if 'is_final' not in cols:
-    cur2.execute("ALTER TABLE games ADD COLUMN is_final INTEGER DEFAULT 0")
-if 'winner_team_id' not in cols:
-    cur2.execute("ALTER TABLE games ADD COLUMN winner_team_id INTEGER DEFAULT NULL")
-cur2.close()
+if 'team1_id' not in existing_cols:
+    # Build new table with desired columns
+    cur_m.execute("""
+    CREATE TABLE IF NOT EXISTS games_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        team1_id INTEGER,
+        team2_id INTEGER,
+        venue_id INTEGER,
+        game_date TEXT,
+        team1_score INTEGER DEFAULT 0,
+        team2_score INTEGER DEFAULT 0,
+        start_time TEXT DEFAULT '00:00',
+        end_time TEXT DEFAULT '00:00',
+        is_final INTEGER DEFAULT 0,
+        winner_team_id INTEGER DEFAULT NULL,
+        FOREIGN KEY (team1_id) REFERENCES teams(id),
+        FOREIGN KEY (team2_id) REFERENCES teams(id),
+        FOREIGN KEY (venue_id) REFERENCES venues(id)
+    )
+    """)
+    # Copy data from old structure if present, mapping columns where possible.
+    # If old columns don't exist, use defaults.
+    # Determine possible old column names
+    has_home = 'home_team_id' in existing_cols
+    has_away = 'away_team_id' in existing_cols
+    has_home_score = 'home_score' in existing_cols
+    has_away_score = 'away_score' in existing_cols
+    has_start = 'start_time' in existing_cols
+    has_end = 'end_time' in existing_cols
+    has_is_final = 'is_final' in existing_cols
+    has_winner = 'winner_team_id' in existing_cols
 
+    select_parts = []
+    # team1_id <- home_team_id if exists else NULL
+    if has_home:
+        select_parts.append("home_team_id AS team1_id")
+    else:
+        select_parts.append("NULL AS team1_id")
+    # team2_id <- away_team_id if exists else NULL
+    if has_away:
+        select_parts.append("away_team_id AS team2_id")
+    else:
+        select_parts.append("NULL AS team2_id")
+    # venue_id
+    select_parts.append("venue_id")
+    # game_date
+    select_parts.append("game_date")
+    # scores
+    if has_home_score:
+        select_parts.append("home_score AS team1_score")
+    else:
+        select_parts.append("0 AS team1_score")
+    if has_away_score:
+        select_parts.append("away_score AS team2_score")
+    else:
+        select_parts.append("0 AS team2_score")
+    # start_time / end_time
+    if has_start:
+        select_parts.append("start_time")
+    else:
+        select_parts.append("'00:00' AS start_time")
+    if has_end:
+        select_parts.append("end_time")
+    else:
+        select_parts.append("'00:00' AS end_time")
+    # is_final and winner_team_id
+    if has_is_final:
+        select_parts.append("is_final")
+    else:
+        select_parts.append("0 AS is_final")
+    if has_winner:
+        select_parts.append("winner_team_id")
+    else:
+        select_parts.append("NULL AS winner_team_id")
+
+    select_clause = ", ".join(select_parts)
+    try:
+        # Use INSERT ... SELECT to migrate rows if games exists
+        cur_m.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='games'")
+        if cur_m.fetchone():
+            cur_m.execute(f"INSERT INTO games_new (team1_id, team2_id, venue_id, game_date, team1_score, team2_score, start_time, end_time, is_final, winner_team_id) SELECT {select_clause} FROM games")
+            cur_m.execute("DROP TABLE IF EXISTS games")
+        # Rename new table
+        cur_m.execute("ALTER TABLE games_new RENAME TO games")
+        mydb.commit()
+    except Exception:
+        # If migration failed, ensure games exists (maybe it already did)
+        try:
+            cur_m.execute("DROP TABLE IF EXISTS games_new")
+            mydb.commit()
+        except Exception:
+            pass
+
+cur_m.close()
+
+# MVPs table
 cur.execute("""
 CREATE TABLE IF NOT EXISTS mvps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,7 +148,7 @@ CREATE TABLE IF NOT EXISTS mvps (
     year INTEGER NOT NULL,
     FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
     FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
-    UNIQUE(player_id, year)  -- ensure a player is MVP only once per year
+    UNIQUE(player_id, year)
 )
 """)
 
@@ -103,7 +157,8 @@ cur.close()
 
 class ScheduleManager:
     def __init__(self):
-        self.mydb = mydb 
+        self.mydb = mydb
+
     def addTeam(self, team):
         if isinstance(team, Team):
             cursor = self.mydb.cursor()
@@ -123,11 +178,11 @@ class ScheduleManager:
     def displaySchedule(self):
         cursor = self.mydb.cursor()
         cursor.execute("""
-        SELECT g.id, t1.teamName AS home_team, t2.teamName AS away_team, v.venueName, g.game_date, g.home_score, g.away_score
+        SELECT g.id, t1.teamName AS team1, t2.teamName AS team2, v.venueName, g.game_date, g.team1_score, g.team2_score
         FROM games g
-        JOIN teams t1 ON g.home_team_id = t1.id
-        JOIN teams t2 ON g.away_team_id = t2.id
-        JOIN venues v ON g.venue_id = v.id
+        LEFT JOIN teams t1 ON g.team1_id = t1.id
+        LEFT JOIN teams t2 ON g.team2_id = t2.id
+        LEFT JOIN venues v ON g.venue_id = v.id
         ORDER BY g.game_date
         """)
         results = cursor.fetchall()
@@ -139,14 +194,16 @@ class ScheduleManager:
     def displayStandings(self):
         cursor = self.mydb.cursor()
         cursor.execute("""
-        SELECT t.teamName, 
-               SUM(CASE WHEN g.home_team_id = t.id AND g.home_score > g.away_score THEN 1 
-                        WHEN g.away_team_id = t.id AND g.away_score > g.home_score THEN 1 ELSE 0 END) AS wins,
-               SUM(CASE WHEN g.home_team_id = t.id AND g.home_score < g.away_score THEN 1 
-                        WHEN g.away_team_id = t.id AND g.away_score < g.home_score THEN 1 ELSE 0 END) AS losses,
-               t.totalPoints
+        SELECT t.teamName,
+               COALESCE(t.totalPoints, 0) AS totalPoints,
+               COALESCE((SELECT COUNT(*) FROM games g WHERE g.is_final = 1 AND g.winner_team_id = t.id), 0) AS wins,
+               COALESCE((SELECT COUNT(*) FROM games g
+                         WHERE g.is_final = 1
+                           AND (g.team1_id = t.id OR g.team2_id = t.id)
+                           AND (g.winner_team_id IS NOT NULL AND g.winner_team_id != t.id)
+                        ), 0) AS losses
         FROM teams t
-        LEFT JOIN games g ON t.id = g.home_team_id OR t.id = g.away_team_id
+        LEFT JOIN games g2 ON (g2.team1_id = t.id OR g2.team2_id = t.id)
         GROUP BY t.id, t.teamName, t.totalPoints
         ORDER BY wins DESC, totalPoints DESC
         """)
@@ -154,46 +211,46 @@ class ScheduleManager:
         cursor.close()
         print("Standings:")
         for row in results:
-            print(f"Team: {row[0]}, Wins: {row[1]}, Losses: {row[2]}, Total Points: {row[3]}")
+            print(f"Team: {row[0]}, Wins: {row[2]}, Losses: {row[3]}, Total Points: {row[1]}")
 
     def gameResults(self, gameID):
         cursor = self.mydb.cursor()
         cursor.execute("""
-        SELECT g.id, t1.teamName AS home_team, t2.teamName AS away_team, v.venueName, g.game_date, g.home_score, g.away_score
+        SELECT g.id, t1.teamName AS team1, t2.teamName AS team2, v.venueName, g.game_date, g.team1_score, g.team2_score
         FROM games g
-        JOIN teams t1 ON g.home_team_id = t1.id
-        JOIN teams t2 ON g.away_team_id = t2.id
-        JOIN venues v ON g.venue_id = v.id
+        LEFT JOIN teams t1 ON g.team1_id = t1.id
+        LEFT JOIN teams t2 ON g.team2_id = t2.id
+        LEFT JOIN venues v ON g.venue_id = v.id
         WHERE g.id = ?
         """, (gameID,))
         result = cursor.fetchone()
         cursor.close()
         if result:
             return {
-                'gameID': result[0],
-                'home_team': result[1],
-                'away_team': result[2],
-                'venue': result[3],
-                'date': result[4],
-                'score': f"{result[5]}-{result[6]}"
+                'gameID': result['id'],
+                'team1': result['team1'],
+                'team2': result['team2'],
+                'venue': result['venueName'],
+                'date': result['game_date'],
+                'score': f"{result['team1_score']}-{result['team2_score']}"
             }
         return None
 
-    def scheduleGame(self, home_team_id, away_team_id, venue_id, game_date):
+    def scheduleGame(self, team1_id, team2_id, venue_id, game_date):
         cursor = self.mydb.cursor()
-        cursor.execute("INSERT INTO games (home_team_id, away_team_id, venue_id, game_date, start_time, end_time) VALUES (?, ?, ?, ?, ?, ?)", 
-                       (home_team_id, away_team_id, venue_id, game_date, '00:00', '00:00'))
+        cursor.execute("INSERT INTO games (team1_id, team2_id, venue_id, game_date, start_time, end_time, team1_score, team2_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                       (team1_id, team2_id, venue_id, game_date, '00:00', '00:00', 0, 0))
         self.mydb.commit()
         game_id = cursor.lastrowid
         cursor.close()
         return game_id
 
-    def updateGame(self, game_id, home_team_id, away_team_id, venue_id, game_date, start_time='00:00', end_time='00:00'):
+    def updateGame(self, game_id, team1_id, team2_id, venue_id, game_date, start_time='00:00', end_time='00:00'):
         cursor = self.mydb.cursor()
         cursor.execute("""
-            UPDATE games SET home_team_id = ?, away_team_id = ?, venue_id = ?, game_date = ?, start_time = ?, end_time = ?
+            UPDATE games SET team1_id = ?, team2_id = ?, venue_id = ?, game_date = ?, start_time = ?, end_time = ?
             WHERE id = ?
-        """, (home_team_id, away_team_id, venue_id, game_date, start_time, end_time, game_id))
+        """, (team1_id, team2_id, venue_id, game_date, start_time, end_time, game_id))
         self.mydb.commit()
         cursor.close()
 
@@ -204,7 +261,6 @@ class ScheduleManager:
         cursor.close()
 
     def isGameFinal(self, game_id):
-        """Return True if the game has been marked final (ended)."""
         cursor = self.mydb.cursor()
         cursor.execute("SELECT is_final FROM games WHERE id = ?", (game_id,))
         r = cursor.fetchone()
@@ -212,38 +268,31 @@ class ScheduleManager:
         return bool(r['is_final']) if r and 'is_final' in r.keys() else False
 
     def endGame(self, game_id):
-        """
-        Mark the game as finished. Determine winner by summing player points for both teams:
-          - finds home_team_id and away_team_id from games table,
-          - sums players.points for each team,
-          - writes is_final = 1 and winner_team_id (NULL if tie)
-        Returns winner_team_id (int) or None on tie, or raises on error.
-        """
         cursor = self.mydb.cursor()
-        cursor.execute("SELECT home_team_id, away_team_id FROM games WHERE id = ?", (game_id,))
+        cursor.execute("SELECT team1_id, team2_id FROM games WHERE id = ?", (game_id,))
         row = cursor.fetchone()
         if not row:
             cursor.close()
             raise ValueError("Game not found")
 
-        home_id = row['home_team_id']
-        away_id = row['away_team_id']
+        t1_id = row['team1_id']
+        t2_id = row['team2_id']
 
-        cursor.execute("SELECT SUM(points) as s FROM players WHERE team_id = ?", (home_id,))
+        cursor.execute("SELECT SUM(points) as s FROM players WHERE team_id = ?", (t1_id,))
         hrow = cursor.fetchone()
-        home_sum = hrow['s'] if hrow and hrow['s'] is not None else 0
+        t1_sum = hrow['s'] if hrow and hrow['s'] is not None else 0
 
-        cursor.execute("SELECT SUM(points) as s FROM players WHERE team_id = ?", (away_id,))
+        cursor.execute("SELECT SUM(points) as s FROM players WHERE team_id = ?", (t2_id,))
         arow = cursor.fetchone()
-        away_sum = arow['s'] if arow and arow['s'] is not None else 0
+        t2_sum = arow['s'] if arow and arow['s'] is not None else 0
 
         winner = None
-        if home_sum > away_sum:
-            winner = home_id
-        elif away_sum > home_sum:
-            winner = away_id
+        if t1_sum > t2_sum:
+            winner = t1_id
+        elif t2_sum > t1_sum:
+            winner = t2_id
         else:
-            winner = None 
+            winner = None
         cursor.execute("UPDATE games SET is_final = 1, winner_team_id = ? WHERE id = ?", (winner, game_id))
         self.mydb.commit()
         cursor.close()
@@ -271,7 +320,7 @@ class Team:
     def addPlayer(self, player):
         if isinstance(player, Player):
             cursor = mydb.cursor()
-            cursor.execute("INSERT INTO players (name, jerseyNumber, points, team_id) VALUES (?, ?, ?, ?)", 
+            cursor.execute("INSERT INTO players (name, jerseyNumber, points, team_id) VALUES (?, ?, ?, ?)",
                            (player.name, player.jerseyNumber, player.points, self.id))
             mydb.commit()
             player.id = cursor.lastrowid
@@ -298,12 +347,12 @@ class Team:
         cursor = mydb.cursor()
         cursor.execute("""
         SELECT 
-            SUM(CASE WHEN home_team_id = ? AND home_score > away_score THEN 1 
-                     WHEN away_team_id = ? AND away_score > home_score THEN 1 ELSE 0 END) AS wins,
-            SUM(CASE WHEN home_team_id = ? AND home_score < away_score THEN 1 
-                     WHEN away_team_id = ? AND away_score < home_score THEN 1 ELSE 0 END) AS losses
+            SUM(CASE WHEN team1_id = ? AND team1_score > team2_score THEN 1
+                     WHEN team2_id = ? AND team2_score > team1_score THEN 1 ELSE 0 END) AS wins,
+            SUM(CASE WHEN team1_id = ? AND team1_score < team2_score THEN 1
+                     WHEN team2_id = ? AND team2_score < team1_score THEN 1 ELSE 0 END) AS losses
         FROM games
-        WHERE home_team_id = ? OR away_team_id = ?
+        WHERE team1_id = ? OR team2_id = ?
         """, (self.id, self.id, self.id, self.id, self.id, self.id))
         result = cursor.fetchone()
         cursor.close()
@@ -335,16 +384,4 @@ class MVP(Player):
             self.mydb.commit()
             cursor.close()
         else:
-            pass # Handle error appropriately, object is not a Player
-    def getMVPsByYear(self, year):
-        cursor = self.mydb.cursor()
-        cursor.execute("""
-        SELECT p.name AS player_name, t.teamName, m.year
-        FROM mvps m
-        JOIN players p ON m.player_id = p.id
-        JOIN teams t ON m.team_id = t.id
-        WHERE m.year = ?
-        """, (year,))
-        results = cursor.fetchall()
-        cursor.close()
-        return results
+            pass
