@@ -161,13 +161,6 @@ def on_view_click(index, game):
 
     panel.update()
 
-    refs["selected_game"] = {
-        "id": game.get("id"),
-        "team1_id": game.get("team1_id"),
-        "team2_id": game.get("team2_id")
-    }
-
-
 def refresh_scheduled_games_table(table_frame):
     """
     Refresh the table UI using the canonical scheduled games list (from scheduleGameTab if available).
