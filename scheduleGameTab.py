@@ -15,16 +15,23 @@ scheduled_games = []  # List of dicts: [{'team1': str, 'team2': str, 'venue': st
 
 
 def load_scheduled_games_from_db():
-    """Load scheduled games from DB into `scheduled_games` list."""
+    """Load scheduled games from DB into `scheduled_games` list.
+
+    NOTE: This function uses the current games schema (team1_id/team2_id).
+    It also attempts to update viewGamesTab.scheduled_games (if that module is loaded)
+    so the view tab and schedule tab share the same in-memory list.
+    """
     scheduled_games.clear()
     cur = sched_mgr.mydb.cursor()
 
+    # Use the canonical column names team1_id/team2_id (migrated schema).
+    # Join to teams and venues to get human-readable names.
     cur.execute(
         """
         SELECT 
             g.id,
-            g.home_team_id,
-            g.away_team_id,
+            g.team1_id,
+            g.team2_id,
             t1.teamName AS team1,
             t2.teamName AS team2,
             v.venueName AS venue,
@@ -32,10 +39,10 @@ def load_scheduled_games_from_db():
             g.start_time,
             g.end_time
         FROM games g
-        JOIN teams t1 ON g.home_team_id = t1.id
-        JOIN teams t2 ON g.away_team_id = t2.id
-        JOIN venues v ON g.venue_id = v.id
-        ORDER BY g.game_date
+        LEFT JOIN teams t1 ON g.team1_id = t1.id
+        LEFT JOIN teams t2 ON g.team2_id = t2.id
+        LEFT JOIN venues v ON g.venue_id = v.id
+        ORDER BY g.game_date, g.start_time
         """
     )
 
@@ -43,17 +50,37 @@ def load_scheduled_games_from_db():
     for r in rows:
         scheduled_games.append({
             'id': r['id'],
-            'team1': r['team1'],
-            'team2': r['team2'],
-            'team1_id': r['home_team_id'],
-            'team2_id': r['away_team_id'],
-            'venue': r['venue'],
+            'team1': r['team1'] if 'team1' in r.keys() else None,
+            'team2': r['team2'] if 'team2' in r.keys() else None,
+            'team1_id': r['team1_id'],
+            'team2_id': r['team2_id'],
+            'venue': r['venue'] if 'venue' in r.keys() else None,
             'date': r['game_date'],
             'start': r['start_time'] or '00:00',
             'end': r['end_time'] or '00:00'
         })
 
-    cur.close()
+    try:
+        cur.close()
+    except Exception:
+        pass
+
+    # If viewGamesTab has its own scheduled_games list, keep it in sync.
+    try:
+        import viewGamesTab as vgt
+        if hasattr(vgt, 'scheduled_games'):
+            # Replace contents of vgt.scheduled_games to match this list (preserve same list reference if possible)
+            try:
+                # If viewGamesTab.scheduled_games is the same object, no action required.
+                if vgt.scheduled_games is not scheduled_games:
+                    vgt.scheduled_games.clear()
+                    for g in scheduled_games:
+                        vgt.scheduled_games.append(g)
+            except Exception:
+                # best-effort: set attribute
+                vgt.scheduled_games = list(scheduled_games)
+    except Exception:
+        pass
 
 
 def update_schedule_optionmenus(team1_opt, team2_opt, venue_opt):

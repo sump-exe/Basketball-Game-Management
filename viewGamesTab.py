@@ -4,7 +4,9 @@ from datetime import datetime, date as _date
 from theDB import *
 
 refs = {}
+# keep a local fallback scheduled_games list, but prefer scheduleGameTab.scheduled_games when available
 scheduled_games = []
+
 from scheduleGameTab import show_game_details
 
 try:
@@ -113,6 +115,20 @@ def _format_season_header(year):
     return f"Season {end_year} — {s.isoformat()} → {e.isoformat()}"
 
 
+def _get_scheduled_games_source():
+    """
+    Prefer scheduleGameTab.scheduled_games when available (keeps a single source of truth).
+    Otherwise fall back to the local scheduled_games list.
+    """
+    try:
+        import scheduleGameTab as sgt
+        if hasattr(sgt, 'scheduled_games'):
+            return sgt.scheduled_games
+    except Exception:
+        pass
+    return scheduled_games
+
+
 def on_view_click(index, game):
     # Set selected game
     refs["selected_game"] = {
@@ -151,14 +167,33 @@ def on_view_click(index, game):
         "team2_id": game.get("team2_id")
     }
 
+
 def refresh_scheduled_games_table(table_frame):
+    """
+    Refresh the table UI using the canonical scheduled games list (from scheduleGameTab if available).
+    If the scheduled games list is empty, attempt to load from DB using scheduleGameTab.load_scheduled_games_from_db().
+    """
     for widget in table_frame.winfo_children():
         try:
             widget.destroy()
         except Exception:
             pass
+
+    # get canonical source of scheduled games
+    src_games = _get_scheduled_games_source()
+
+    # if no games loaded, try to load from DB (best-effort)
+    if not src_games:
+        try:
+            import scheduleGameTab as sgt
+            if hasattr(sgt, 'load_scheduled_games_from_db'):
+                sgt.load_scheduled_games_from_db()
+                src_games = _get_scheduled_games_source()
+        except Exception:
+            pass
+
     id_to_index = {}
-    for idx, g in enumerate(scheduled_games):
+    for idx, g in enumerate(src_games):
         gid = g.get('id')
         if gid is not None:
             id_to_index[gid] = idx
@@ -184,6 +219,7 @@ def refresh_scheduled_games_table(table_frame):
         cols.pack(fill="x", padx=8, pady=(0, 4))
         for ci in range(10):
             cols.grid_columnconfigure(ci, weight=(1 if ci <= 6 else 0))
+
         ctk.CTkLabel(cols, text="Team 1", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, padx=8, pady=4, sticky="w")
         ctk.CTkLabel(cols, text="Team 2", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=1, padx=8, pady=4, sticky="w")
         ctk.CTkLabel(cols, text="Venue", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=2, padx=8, pady=4, sticky="w")
@@ -196,7 +232,7 @@ def refresh_scheduled_games_table(table_frame):
         ctk.CTkLabel(cols, text="Delete", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=9, padx=8, pady=4, sticky="w")
 
         group_games = []
-        for g in scheduled_games:
+        for g in src_games:
             dt = _parse_iso(g.get('date'))
             if dt and start_dt <= dt <= end_dt:
                 group_games.append(g)
@@ -257,7 +293,7 @@ def refresh_scheduled_games_table(table_frame):
                                         hover_color="#4A90E2", fg_color="#1F75FE")
             else:
                 view_btn = ctk.CTkButton(row_frame, text="View", width=60, height=30,
-                                        command=lambda g=game: on_view_click(scheduled_games.index(g), g),
+                                        command=lambda g=game: on_view_click(src_games.index(g), g),
                                         hover_color="#4A90E2", fg_color="#1F75FE")
             view_btn.grid(row=0, column=7, padx=4, pady=4, sticky="w")
 
@@ -267,7 +303,7 @@ def refresh_scheduled_games_table(table_frame):
                                          hover_color="#FFA500", fg_color="#4CAF50")
             else:
                 edit_btn = ctk.CTkButton(row_frame, text="Edit", width=60, height=30,
-                                         command=lambda g=game: edit_scheduled_game(scheduled_games.index(g)),
+                                         command=lambda g=game: edit_scheduled_game(src_games.index(g)),
                                          hover_color="#FFA500", fg_color="#4CAF50")
             edit_btn.grid(row=0, column=8, padx=4, pady=4)
 
@@ -277,15 +313,16 @@ def refresh_scheduled_games_table(table_frame):
                                            hover_color="#FF4500", fg_color="#F44336")
             else:
                 delete_btn = ctk.CTkButton(row_frame, text="Delete", width=60, height=30,
-                                           command=lambda g=game: delete_scheduled_game(scheduled_games.index(g)),
+                                           command=lambda g=game: delete_scheduled_game(src_games.index(g)),
                                            hover_color="#FF4500", fg_color="#F44336")
             delete_btn.grid(row=0, column=9, padx=4, pady=4)
 
 
 def edit_scheduled_game(index):
-    if index < 0 or index >= len(scheduled_games):
+    src_games = _get_scheduled_games_source()
+    if index < 0 or index >= len(src_games):
         return
-    game = scheduled_games[index]
+    game = src_games[index]
     win = ctk.CTkToplevel(refs.get('app') if refs.get('app') else None)
     win.title("Edit Scheduled Game")
     win.geometry("420x350")
@@ -330,7 +367,7 @@ def edit_scheduled_game(index):
         except Exception:
             messagebox.showwarning("Invalid", "Date must be in YYYY-MM-DD format.")
             return
-        game = scheduled_games[index]
+        game = src_games[index]
         game_id = game.get('id')
         start = game.get('start', '00:00')
         end = game.get('end', '00:00')
@@ -371,14 +408,13 @@ def edit_scheduled_game(index):
             pass
         win.destroy()
 
-    ctk.CTkButton(win, text="Save Changes", command=save_edit).pack(pady=12)
-
 
 def delete_scheduled_game(index):
-    if not (0 <= index < len(scheduled_games)):
+    src_games = _get_scheduled_games_source()
+    if not (0 <= index < len(src_games)):
         return
     if messagebox.askyesno("Delete Game", "Are you sure you want to delete this scheduled game?"):
-        game = scheduled_games[index]
+        game = src_games[index]
         game_id = game.get('id')
         if game_id:
             try:
@@ -388,7 +424,7 @@ def delete_scheduled_game(index):
                 messagebox.showwarning("Error", "Could not delete game from DB.")
         else:
             try:
-                scheduled_games.pop(index)
+                src_games.pop(index)
             except Exception:
                 pass
         try:
