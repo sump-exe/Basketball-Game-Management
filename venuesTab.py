@@ -16,7 +16,7 @@ def load_venues_from_db():
     cur.execute("SELECT id, venueName, location, capacity FROM venues ORDER BY venueName")
     rows = cur.fetchall()
     for r in rows:
-        venues[r['venueName']] = {"address": r['location'], "capacity": r['capacity'], "available": True}
+        venues[r['venueName']] = {"address": r['location'], "capacity": r['capacity']}
     cur.close()
 
 def refresh_venue_sidebar(sidebar_scrollable, venue_buttons_list, search_var=None):
@@ -60,13 +60,6 @@ def show_venue_details(venue_name):
 
     ctk.CTkLabel(frame, text=f"Address: {v['address']}", anchor="w").pack(fill="x", padx=12, pady=4)
     ctk.CTkLabel(frame, text=f"Capacity: {v['capacity']}", anchor="w").pack(fill="x", padx=12, pady=4)
-
-    avail_var = ctk.BooleanVar(value=v.get("available", True))
-    def toggle_avail():
-        venues[venue_name]["available"] = avail_var.get()
-        update_schedule_optionmenus(refs.get('tab3_team1_opt'), refs.get('tab3_team2_opt'), refs.get('tab3_venue_opt'))
-    chk = ctk.CTkCheckBox(frame, text="Available", variable=avail_var, command=toggle_avail)
-    chk.pack(pady=12)
 
     btn_frame = ctk.CTkFrame(frame, fg_color="#333333")
     btn_frame.pack(pady=10, padx=8, fill="x")
