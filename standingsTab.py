@@ -89,12 +89,10 @@ def _compute_season_start_years_with_games():
         except Exception:
             pass
 
-
 def _format_season_header(year):
     s, e = _season_windows_for_year(year)
     end_year = e.year if e is not None else year
     return f"Season {end_year} — {s.isoformat()} → {e.isoformat()}"
-
 
 def refresh_standings_table(container):
     _widgets["container"] = container
@@ -132,7 +130,6 @@ def refresh_standings_table(container):
             refs['standings_table'] = container
     except Exception:
         pass
-
 
 def refresh_standings_rows():
     standings_frame = _widgets.get("standings_frame")
@@ -264,9 +261,6 @@ def refresh_standings_rows():
             ctk.CTkLabel(row_frame, text=str(total_points)).grid(row=0, column=4, padx=8, pady=6, sticky="w")
 
 def build_mvp_panel():
-    """
-    Build the MVP panel (right side). Constructed once; refresh_mvp_controls updates values.
-    """
     mvp_frame = _widgets.get("mvp_frame")
     if not mvp_frame:
         container = _widgets.get("container")
@@ -376,7 +370,6 @@ def load_players_for_team(team_id):
             cur.close()
         except Exception:
             pass
-
 
 def load_years():
     years = _compute_season_start_years_with_games()
@@ -551,7 +544,6 @@ def refresh_mvp_controls():
 
     on_year_change()
 
-
 def assign_mvp():
     year_var = _widgets.get("year_var")
     player_opt = _widgets.get("player_opt")
@@ -613,7 +605,6 @@ def assign_mvp():
         container = _widgets.get("container")
         if container:
             refresh_standings_table(container)
-
 
 def clear_mvp():
     year_var = _widgets.get("year_var")

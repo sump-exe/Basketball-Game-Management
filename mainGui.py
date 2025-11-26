@@ -14,7 +14,6 @@ ctk.set_default_color_theme("dark-blue")
 
 refs = {}
 
-# Root app
 app = ctk.CTk()
 app.title("Basketball Game Scheduler System")
 app.geometry("1200x700")
@@ -30,7 +29,6 @@ file3.teams = file1.teams
 file3.venues = file2.venues
 
 file4.scheduled_games = file3.scheduled_games
-file4.show_game_details = file3.show_game_details
 
 load_teams_from_db = file1.load_teams_from_db
 load_venues_from_db = file2.load_venues_from_db
@@ -127,7 +125,6 @@ def show_main_interface():
         tabview.add("Standings")
         print("[mainGui] Tab headers created.")
 
-        # populate refs for tab views
         refs['tabview'] = tabview
 
         # --- Teams & Players ---

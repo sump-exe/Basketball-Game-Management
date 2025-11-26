@@ -432,9 +432,6 @@ def open_add_team_popup(prefill_name=None):
     btn_text = "Save Changes" if prefill_name else "Add Team"
     ctk.CTkButton(win, text=btn_text, command=save_team, hover_color="#4A90E2").pack(pady=12)
 
-# -----------------------
-# New helper: show a team's game history in a popup
-# -----------------------
 def open_team_history_popup(team_name=None):
     """Show a popup with the selected team's game history.
     If team_name is None, attempts to use refs['current_team'] set by show_team_players.
@@ -453,7 +450,6 @@ def open_team_history_popup(team_name=None):
             return
         team_id = row['id']
 
-        # Fetch games where this team was either team1 or team2
         cur.execute("""
             SELECT
                 g.id,
@@ -510,7 +506,6 @@ def open_team_history_popup(team_name=None):
         t1_score = g['team1_score'] if 'team1_score' in g.keys() else 0
         t2_score = g['team2_score'] if 'team2_score' in g.keys() else 0
 
-        # Determine opponent
         if g['team1_id'] == team_id:
             opponent = team2
             score_display = f"{t1_score} - {t2_score}"
@@ -546,7 +541,6 @@ def open_team_history_popup(team_name=None):
             score_lbl = ctk.CTkLabel(row, text=f"Score: {score_display}", text_color="#FFD700")
             score_lbl.grid(row=1, column=0, columnspan=4, sticky="w", padx=8, pady=(0,6))
 
-    # optional: provide a Close button
     btn_frame = ctk.CTkFrame(win, fg_color="#181818")
     btn_frame.pack(fill="x", padx=12, pady=(0,12))
     ctk.CTkButton(btn_frame, text="Close", command=win.destroy, width=100).pack(side="right", padx=8, pady=8)

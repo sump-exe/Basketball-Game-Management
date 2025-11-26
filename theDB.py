@@ -8,7 +8,6 @@ mydb.row_factory = sqlite3.Row
 cur = mydb.cursor()
 cur.execute("PRAGMA foreign_keys = ON")
 
-# teams table
 cur.execute("""
 CREATE TABLE IF NOT EXISTS teams (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -17,7 +16,6 @@ CREATE TABLE IF NOT EXISTS teams (
 )
 """)
 
-# players table
 cur.execute("""
 CREATE TABLE IF NOT EXISTS players (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,7 +27,6 @@ CREATE TABLE IF NOT EXISTS players (
 )
 """)
 
-# venues table
 cur.execute("""
 CREATE TABLE IF NOT EXISTS venues (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,13 +36,10 @@ CREATE TABLE IF NOT EXISTS venues (
 )
 """)
 
-# Perform migration for games table if it still uses home_/away_ columns or old score columns.
-# New schema uses team1_id, team2_id and team1_score, team2_score to avoid home/away semantics.
 cur_m = mydb.cursor()
 existing_cols = [r[1] for r in cur_m.execute("PRAGMA table_info(games)").fetchall()]
 
 if 'team1_id' not in existing_cols:
-    # Build new table with desired columns
     cur_m.execute("""
     CREATE TABLE IF NOT EXISTS games_new (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,9 +58,6 @@ if 'team1_id' not in existing_cols:
         FOREIGN KEY (venue_id) REFERENCES venues(id)
     )
     """)
-    # Copy data from old structure if present, mapping columns where possible.
-    # If old columns don't exist, use defaults.
-    # Determine possible old column names
     has_home = 'home_team_id' in existing_cols
     has_away = 'away_team_id' in existing_cols
     has_home_score = 'home_score' in existing_cols
@@ -77,21 +68,16 @@ if 'team1_id' not in existing_cols:
     has_winner = 'winner_team_id' in existing_cols
 
     select_parts = []
-    # team1_id <- home_team_id if exists else NULL
     if has_home:
         select_parts.append("home_team_id AS team1_id")
     else:
         select_parts.append("NULL AS team1_id")
-    # team2_id <- away_team_id if exists else NULL
     if has_away:
         select_parts.append("away_team_id AS team2_id")
     else:
         select_parts.append("NULL AS team2_id")
-    # venue_id
     select_parts.append("venue_id")
-    # game_date
     select_parts.append("game_date")
-    # scores
     if has_home_score:
         select_parts.append("home_score AS team1_score")
     else:
@@ -100,7 +86,6 @@ if 'team1_id' not in existing_cols:
         select_parts.append("away_score AS team2_score")
     else:
         select_parts.append("0 AS team2_score")
-    # start_time / end_time
     if has_start:
         select_parts.append("start_time")
     else:
@@ -109,7 +94,6 @@ if 'team1_id' not in existing_cols:
         select_parts.append("end_time")
     else:
         select_parts.append("'00:00' AS end_time")
-    # is_final and winner_team_id
     if has_is_final:
         select_parts.append("is_final")
     else:
@@ -121,16 +105,13 @@ if 'team1_id' not in existing_cols:
 
     select_clause = ", ".join(select_parts)
     try:
-        # Use INSERT ... SELECT to migrate rows if games exists
         cur_m.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='games'")
         if cur_m.fetchone():
             cur_m.execute(f"INSERT INTO games_new (team1_id, team2_id, venue_id, game_date, team1_score, team2_score, start_time, end_time, is_final, winner_team_id) SELECT {select_clause} FROM games")
             cur_m.execute("DROP TABLE IF EXISTS games")
-        # Rename new table
         cur_m.execute("ALTER TABLE games_new RENAME TO games")
         mydb.commit()
     except Exception:
-        # If migration failed, ensure games exists (maybe it already did)
         try:
             cur_m.execute("DROP TABLE IF EXISTS games_new")
             mydb.commit()
@@ -139,7 +120,6 @@ if 'team1_id' not in existing_cols:
 
 cur_m.close()
 
-# MVPs table
 cur.execute("""
 CREATE TABLE IF NOT EXISTS mvps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

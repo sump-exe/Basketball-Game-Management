@@ -2,14 +2,10 @@ import customtkinter as ctk
 from tkinter import messagebox
 from datetime import datetime, date as _date
 from theDB import *
-from scheduleGameTab import show_game_details as on_view_click
 
 refs = None
-# keep a local fallback scheduled_games list, but prefer scheduleGameTab.scheduled_games when available
 from scheduleGameTab import scheduled_games as sg
 scheduled_games = sg
-
-from scheduleGameTab import show_game_details
 
 try:
     from scheduleGameTab import _season_range_for_year
@@ -33,13 +29,25 @@ except Exception:
             end = _date(year, em, ed)
         return start, end
 
+def show_game_details(index):
+    if index < 0 or index >= len(scheduled_games):
+        return
+    game = scheduled_games[index]
+    details = (
+        f"Team 1: {game['team1']}\n"
+        f"Team 2: {game['team2']}\n\n"
+        f"Venue:  {game['venue']}\n\n"
+        f"Date:   {game['date']}\n"
+        f"Time:   {game['start']} - {game['end']}\n"
+    )
+    if refs.get("details_content"):
+        refs["details_content"].configure(text=details)
 
 def _season_windows_for_year(year):
     """Return window (start, end) spanning Pre-season of year through Off-season of year+1."""
     start, _ = _season_range_for_year("Pre-season", year)
     _, end = _season_range_for_year("Off-season", year + 1)
     return start, end
-
 
 def _season_from_iso(date_iso):
     try:
@@ -63,7 +71,6 @@ def _season_from_iso(date_iso):
                 return season
     return ""
 
-
 def _parse_iso(date_iso):
     try:
         if not date_iso:
@@ -71,7 +78,6 @@ def _parse_iso(date_iso):
         return datetime.strptime(date_iso, "%Y-%m-%d").date()
     except Exception:
         return None
-
 
 def _compute_season_start_years_with_games():
     cur = mydb.cursor()
@@ -110,18 +116,12 @@ def _compute_season_start_years_with_games():
         except Exception:
             pass
 
-
 def _format_season_header(year):
     s, e = _season_windows_for_year(year)
     end_year = e.year if e is not None else year
     return f"Season {end_year} — {s.isoformat()} → {e.isoformat()}"
 
-
 def _get_scheduled_games_source():
-    """
-    Prefer scheduleGameTab.scheduled_games when available (keeps a single source of truth).
-    Otherwise fall back to the local scheduled_games list.
-    """
     try:
         import scheduleGameTab as sgt
         if hasattr(sgt, 'scheduled_games'):
@@ -131,10 +131,6 @@ def _get_scheduled_games_source():
     return scheduled_games
 
 def refresh_scheduled_games_table(table_frame):
-    """
-    Refresh the table UI using the canonical scheduled games list (from scheduleGameTab if available).
-    If the scheduled games list is empty, attempt to load from DB using scheduleGameTab.load_scheduled_games_from_db().
-    """
     for widget in table_frame.winfo_children():
         try:
             widget.destroy()
@@ -154,7 +150,6 @@ def refresh_scheduled_games_table(table_frame):
         except Exception:
             pass
         src_games = _get_scheduled_games_source()
-
 
     id_to_index = {}
     for idx, g in enumerate(src_games):
@@ -253,11 +248,11 @@ def refresh_scheduled_games_table(table_frame):
 
             if idx is not None:
                 view_btn = ctk.CTkButton(row_frame, text="View", width=60, height=30,
-                                        command=lambda i=idx: on_view_click(i),
+                                        command=lambda i=idx: show_game_details(i),
                                         hover_color="#4A90E2", fg_color="#1F75FE")
             else:
                 view_btn = ctk.CTkButton(row_frame, text="View", width=60, height=30,
-                                        command=lambda g=game: on_view_click(src_games.index(g), g),
+                                        command=lambda g=game: show_game_details(src_games.index(g), g),
                                         hover_color="#4A90E2", fg_color="#1F75FE")
             view_btn.grid(row=0, column=7, padx=4, pady=4, sticky="w")
 
@@ -280,7 +275,6 @@ def refresh_scheduled_games_table(table_frame):
                                            command=lambda g=game: delete_scheduled_game(src_games.index(g)),
                                            hover_color="#FF4500", fg_color="#F44336")
             delete_btn.grid(row=0, column=9, padx=4, pady=4)
-
 
 def edit_scheduled_game(index):
     src_games = _get_scheduled_games_source()
@@ -371,7 +365,6 @@ def edit_scheduled_game(index):
         except Exception:
             pass
         win.destroy()
-
 
 def delete_scheduled_game(index):
     src_games = _get_scheduled_games_source()

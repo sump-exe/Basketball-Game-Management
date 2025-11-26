@@ -145,33 +145,7 @@ def update_schedule_optionmenus(team1_opt, team2_opt, venue_opt):
         except Exception:
             pass
 
-
-def show_game_details(index):
-    if index < 0 or index >= len(scheduled_games):
-        return
-    game = scheduled_games[index]
-    details = (
-        f"Team 1: {game['team1']}\n"
-        f"Team 2: {game['team2']}\n\n"
-        f"Venue:  {game['venue']}\n\n"
-        f"Date:   {game['date']}\n"
-        f"Time:   {game['start']} - {game['end']}\n"
-    )
-    if refs.get("details_content"):
-        refs["details_content"].configure(text=details)
-
-
 def build_schedule_left_ui(parent):
-    """
-    Builds the left-side scheduling controls including:
-    - Team 1
-    - Team 2
-    - Venue
-    - Season
-    - Year (text field placed below Season)
-    - Date (now accepts only Month-Day in MM-DD)
-    - Start / End Time
-    """
     global refs
 
     frame = ctk.CTkFrame(parent)
@@ -354,12 +328,6 @@ def update_game_preview():
 
 # --- New helpers: season ranges validation ---
 def _season_range_for_year(season, year):
-    """
-    Return (start_date, end_date) for the given season and season-start year.
-    The 'year' parameter is treated as the season start year. For seasons that
-    end in the following calendar year (e.g., Regular Season), end_date will
-    be in year+1.
-    """
     # mapping: (start_month, start_day), (end_month, end_day)
     mapping = {
         "Pre-season": ((9, 25), (10, 16)),
@@ -382,13 +350,6 @@ def _season_range_for_year(season, year):
 
 
 def _is_date_within_season(parsed_date, season, year_val):
-    """
-    Flexible check: Accept the parsed_date if it falls into either the season window
-    computed for year_val (treating `year_val` as season-start year) OR the window
-    computed for year_val-1. This makes the UI tolerant to whether the user supplies
-    the season-start year or the calendar year of the date.
-    Returns (True, "") when valid; (False, message) when invalid.
-    """
     if not season or season == "Select":
         return True, ""
 
@@ -403,16 +364,12 @@ def _is_date_within_season(parsed_date, season, year_val):
         if start <= parsed_date <= end:
             return True, ""
 
-    # If none matched, prepare friendly message showing canonical window for display.
-    # Prefer showing canonical window where season-start is year_val if mapping exists,
-    # otherwise fall back to the first available try.
     if tries:
         start, end = tries[0]
         msg = f"Selected season '{season}' accepts dates between {start.isoformat()} and {end.isoformat()}."
     else:
         msg = f"Unknown season '{season}'."
     return False, msg
-
 
 def schedule_game():
     t1 = refs.get('tab3_team1_opt').get() if refs.get('tab3_team1_opt') else None
