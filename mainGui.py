@@ -2,6 +2,12 @@ import customtkinter as ctk
 from tkinter import messagebox
 from datetime import datetime
 from theDB import *
+import teamsTab as file1
+import venuesTab as file2
+import scheduleGameTab as file3
+import viewGamesTab as file4
+import standingsTab as file5
+import pointSystem as file6
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
@@ -14,13 +20,6 @@ app.title("Basketball Game Scheduler System")
 app.geometry("1200x700")
 
 sched_mgr = ScheduleManager()
-
-import teamsTab as file1
-import venuesTab as file2
-import scheduleGameTab as file3
-import viewGamesTab as file4
-import standingsTab as file5
-import pointSystem as file6
 
 for m in (file1, file2, file3, file4, file5):
     setattr(m, 'app', app)
