@@ -2,6 +2,7 @@ import customtkinter as ctk
 from tkinter import messagebox
 from datetime import datetime, date as _date
 from theDB import *
+from scheduleGameTab import show_game_details as on_view_click
 
 refs = None
 # keep a local fallback scheduled_games list, but prefer scheduleGameTab.scheduled_games when available
@@ -129,35 +130,6 @@ def _get_scheduled_games_source():
         pass
     return scheduled_games
 
-
-def on_view_click(index, game):
-    # Set selected game
-    refs["selected_game"] = {
-        "id": game.get("id"),
-        "team1_id": game.get("team1_id"),
-        "team2_id": game.get("team2_id")
-    }
-
-    panel = refs.get("game_details_frame")
-    if not panel:
-        return
-
-    for w in panel.winfo_children():
-        try:
-            w.destroy()
-        except Exception:
-            pass
-        details_label = refs.get("details_content")
-        panel = refs.get("game_details_frame")
-        if details_label is None or not details_label.winfo_exists():
-            # If missing, create it and pack.
-            details_label = ctk.CTkLabel(panel, text="", justify="left", anchor="nw")
-            details_label.pack(fill="both", expand=True, padx=10, pady=10)
-            refs["details_content"] = details_label
-        # Now call show_game_details, which will update details_content's text
-        show_game_details(index)
-        panel.update()
-
 def refresh_scheduled_games_table(table_frame):
     """
     Refresh the table UI using the canonical scheduled games list (from scheduleGameTab if available).
@@ -281,7 +253,7 @@ def refresh_scheduled_games_table(table_frame):
 
             if idx is not None:
                 view_btn = ctk.CTkButton(row_frame, text="View", width=60, height=30,
-                                        command=lambda i=idx, g=game: on_view_click(i, g),
+                                        command=lambda i=idx: on_view_click(i),
                                         hover_color="#4A90E2", fg_color="#1F75FE")
             else:
                 view_btn = ctk.CTkButton(row_frame, text="View", width=60, height=30,
