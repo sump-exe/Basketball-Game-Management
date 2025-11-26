@@ -167,12 +167,6 @@ def show_main_interface():
                     print(f"[mainGui] refresh_team_sidebar error: {e}")
 
             teams_search_var.trace("w", on_team_search)
-            ctk.CTkEntry(
-                teams_sidebar,
-                placeholder_text="Search teams or players...",
-                textvariable=teams_search_var,
-                width=220,
-            ).pack(pady=(0, 8), padx=6)
 
             # Load/populate
             load_teams_from_db()
@@ -220,12 +214,6 @@ def show_main_interface():
                     print(f"[mainGui] refresh_venue_sidebar error: {e}")
 
             venues_search_var.trace("w", on_venue_search)
-            ctk.CTkEntry(
-                venues_sidebar,
-                placeholder_text="Search venues (name, location, capacity)",
-                textvariable=venues_search_var,
-                width=220,
-            ).pack(pady=(0, 8), padx=6)
 
             load_venues_from_db()
             refresh_venue_sidebar(venues_sidebar_scroll, venues_buttons)
