@@ -1,644 +1,382 @@
 import customtkinter as ctk
 from tkinter import messagebox
-from datetime import date as _date, datetime
+from datetime import datetime
 from theDB import *
 
-try:
-    from scheduleGameTab import _season_range_for_year
-except Exception:
-    def _season_range_for_year(season, year):
-        mapping = {
-            "Pre-season": ((9, 25), (10, 16)),
-            "Regular Season": ((10, 17), (4, 16)),
-            "Play-in": ((4, 17), (4, 24)),
-            "Playoff": ((4, 25), (6, 8)),
-            "Finals": ((6, 9), (6, 24)),
-            "Off-season": ((6, 25), (9, 24)),
-        }
-        if season not in mapping:
-            return None, None
-        (sm, sd), (em, ed) = mapping[season]
-        start = _date(year, sm, sd)
-        if (em, ed) < (sm, sd):
-            end = _date(year + 1, em, ed)
-        else:
-            end = _date(year, em, ed)
-        return start, end
-
-
 refs = {}
-
-_widgets = {
-    "container": None,
-    "content": None,
-    "standings_frame": None,
-    "mvp_frame": None,
-    "team_map": {},
-    "player_mappings": {},
-    "team_opt": None,
-    "player_opt": None,
-    "year_opt": None,
-    "team_var": None,
-    "player_var": None,
-    "year_var": None,
-    "current_lbl": None,
-    "assign_btn": None,
-    "clear_btn": None,
-    "year_display_map": {},
-}
+_widgets = {}
 
 def _season_windows_for_year(year):
-    start, _ = _season_range_for_year("Pre-season", year)
-    _, end = _season_range_for_year("Off-season", year + 1)
+    """
+    Returns the start and end date objects for a full season cycle 
+    associated with a specific start year (e.g., 2024 season starts late 2023).
+    """
+    s_helper = Season()
+    # "Pre-season" acts as the start boundary
+    start, _ = s_helper.get_range("Pre-season", year)
+    # "Off-season" acts as the end boundary (of the NEXT calendar year)
+    _, end = s_helper.get_range("Off-season", year + 1)
     return start, end
 
 def _compute_season_start_years_with_games():
-    cursor = mydb.cursor()
+    """
+    Scans the database to find which years actually have scheduled games.
+    """
+    cur = mydb.cursor()
     try:
-        cursor.execute("SELECT MIN(substr(game_date,1,4)) as miny, MAX(substr(game_date,1,4)) as maxy FROM games WHERE game_date IS NOT NULL")
-        r = cursor.fetchone()
-        if not r:
-            return []
-        try:
-            miny = int(r['miny']) if r and r['miny'] else None
-        except Exception:
-            miny = None
-        try:
-            maxy = int(r['maxy']) if r and r['maxy'] else None
-        except Exception:
-            maxy = None
-
-        if miny is None or maxy is None:
-            return []
-
-        years_with_games = []
-        start_candidate = max(1900, miny - 1)
-        end_candidate = maxy
-
-        for y in range(start_candidate, end_candidate + 1):
+        # Find the range of years present in the games table
+        cur.execute("SELECT MIN(substr(game_date,1,4)) as miny, MAX(substr(game_date,1,4)) as maxy FROM games WHERE game_date IS NOT NULL")
+        r = cur.fetchone()
+        if not r or not r['miny']: return []
+        
+        years = []
+        # Check every year in that range to see if it falls into a valid season window
+        for y in range(int(r['miny'])-1, int(r['maxy'])+1):
             s, e = _season_windows_for_year(y)
-            cursor.execute("SELECT 1 FROM games WHERE game_date BETWEEN ? AND ? LIMIT 1", (s.isoformat(), e.isoformat()))
-            if cursor.fetchone():
-                years_with_games.append(y)
-
-        years_with_games.sort(reverse=True)
-        return years_with_games
+            # Efficiently check if at least 1 game exists in this window
+            cur.execute("SELECT 1 FROM games WHERE game_date BETWEEN ? AND ? LIMIT 1", (s.isoformat(), e.isoformat()))
+            if cur.fetchone(): years.append(y)
+        
+        years.sort(reverse=True)
+        return years
     finally:
-        try:
-            cursor.close()
-        except Exception:
-            pass
+        cur.close()
 
 def _format_season_header(year):
     s, e = _season_windows_for_year(year)
-    end_year = e.year if e is not None else year
-    return f"Season {end_year} — {s.isoformat()} → {e.isoformat()}"
+    return f"Season {e.year} — {s} → {e}"
 
 def refresh_standings_table(container):
+    """
+    Main entry point to rebuild the Standings tab UI.
+    """
     _widgets["container"] = container
-
-    for w in container.winfo_children():
-        try:
-            w.destroy()
-        except Exception:
-            pass
-
-    content = ctk.CTkFrame(container, fg_color="#101010")
-    content.pack(fill="both", expand=True, padx=8, pady=6)
-    try:
-        content.grid_columnconfigure(0, weight=3)
-        content.grid_columnconfigure(1, weight=1)
-        content.grid_rowconfigure(0, weight=1)
-    except Exception:
-        pass
-    _widgets["content"] = content
-
-    standings_frame = ctk.CTkScrollableFrame(content, width=700, height = 450, fg_color="#0F0F0F")
-    standings_frame.grid(row=0, column=0, sticky="nsew", padx=(0,8), pady=4)
+    for w in container.winfo_children(): w.destroy()
+    
+    content = ctk.CTkFrame(container)
+    content.pack(fill="both", expand=True)
+    
+    # Left side: Standings Table
+    standings_frame = ctk.CTkScrollableFrame(content, width=700, height=500)
+    standings_frame.pack(side="left", fill="both", expand=True, padx=8)
     _widgets["standings_frame"] = standings_frame
-
-    mvp_frame = ctk.CTkFrame(content, fg_color="#1A1A1A", corner_radius=8)
-    mvp_frame.grid(row=0, column=1, sticky="nsew", padx=(8,0), pady=4)
-    mvp_frame.grid_columnconfigure(0, weight=1)
+    
+    # Right side: MVP Controls
+    mvp_frame = ctk.CTkFrame(content, width=300, height=500)
+    mvp_frame.pack(side="right", fill="y", padx=8)
     _widgets["mvp_frame"] = mvp_frame
-
+    
     refresh_standings_rows()
-    build_mvp_panel()
-
-    try:
-        if isinstance(refs, dict):
-            refs['standings_table'] = container
-    except Exception:
-        pass
+    build_mvp_panel() 
 
 def refresh_standings_rows():
-    standings_frame = _widgets.get("standings_frame")
-    if not standings_frame:
-        container = _widgets.get("container")
-        if container:
-            refresh_standings_table(container)
-        return
-
-    for w in standings_frame.winfo_children():
-        try:
-            w.destroy()
-        except Exception:
-            pass
+    frame = _widgets.get("standings_frame")
+    if not frame: return
+    
+    for w in frame.winfo_children():
+        w.destroy()
 
     years = _compute_season_start_years_with_games()
+    
     if not years:
-        ctk.CTkLabel(standings_frame, text="No scheduled seasons found.", anchor="w").pack(padx=8, pady=8)
+        ctk.CTkLabel(frame, text="No scheduled games found in database.").pack(pady=20)
         return
 
     for year in years:
-        start_dt, end_dt = _season_windows_for_year(year)
-        header_frame = ctk.CTkFrame(standings_frame, fg_color="#1E1E1E")
-        header_frame.pack(fill="x", padx=8, pady=(12, 6))
-        # two columns: left = season header, right = MVP
-        header_frame.grid_columnconfigure(0, weight=1)
-        header_frame.grid_columnconfigure(1, weight=0)
-
-        header_lbl = ctk.CTkLabel(header_frame, text=_format_season_header(year), font=ctk.CTkFont(size=14, weight="bold"))
-        header_lbl.grid(row=0, column=0, sticky="w", padx=8, pady=6)
-
-        # MVP display beside the season header (right aligned)
-        mvp_text = "MVP: —"
+        s, e = _season_windows_for_year(year)
+        start_iso, end_iso = s.isoformat(), e.isoformat()
+        
+        # Season Header
+        header_frame = ctk.CTkFrame(frame, fg_color="#333333")
+        header_frame.pack(fill="x", pady=(15, 5))
+        ctk.CTkLabel(header_frame, text=_format_season_header(year), font=ctk.CTkFont(size=16, weight="bold")).pack(pady=5)
+        
+        # Table Headers
+        cols = ctk.CTkFrame(frame, fg_color="transparent")
+        cols.pack(fill="x")
+        headers = ["Rank", "Team", "Wins", "Losses", "Points Scored"]
+        for i, t in enumerate(headers):
+            cols.grid_columnconfigure(i, weight=1)
+            ctk.CTkLabel(cols, text=t, font=ctk.CTkFont(weight="bold", underline=True)).grid(row=0, column=i, pady=5)
+            
         cur = mydb.cursor()
-        try:
-            cur.execute("""
-                SELECT p.name AS player_name, p.jerseyNumber, t.teamName
-                FROM mvps m
-                JOIN players p ON m.player_id = p.id
-                JOIN teams t ON m.team_id = t.id
-                WHERE m.year = ?
-                LIMIT 1
-            """, (year,))
-            mvpr = cur.fetchone()
-            if mvpr:
-                pname = mvpr['player_name']
-                jersey = mvpr['jerseyNumber']
-                tname = mvpr['teamName']
-                display = f"#{jersey} - {pname}" if jersey not in (None, '') else pname
-                mvp_text = f"MVP: {display} ({tname})"
-        finally:
-            try:
-                cur.close()
-            except Exception:
-                pass
-
-        mvp_lbl = ctk.CTkLabel(header_frame, text=mvp_text, font=ctk.CTkFont(size=12), text_color="#FFD700")
-        mvp_lbl.grid(row=0, column=1, sticky="e", padx=8, pady=6)
-
-        # Column headers for this season block
-        cols = ctk.CTkFrame(standings_frame, fg_color="#1F1F1F")
-        cols.pack(fill="x", padx=8, pady=(0,4))
-        cols.grid_columnconfigure(0, weight=1)
-        cols.grid_columnconfigure(1, weight=3)
-        cols.grid_columnconfigure(2, weight=1)
-        cols.grid_columnconfigure(3, weight=1)
-        cols.grid_columnconfigure(4, weight=1)
-
-        ctk.CTkLabel(cols, text="Rank", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=0, padx=8, pady=4, sticky="w")
-        ctk.CTkLabel(cols, text="Team", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=1, padx=8, pady=4, sticky="w")
-        ctk.CTkLabel(cols, text="Wins", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=2, padx=8, pady=4, sticky="w")
-        ctk.CTkLabel(cols, text="Losses", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=3, padx=8, pady=4, sticky="w")
-        ctk.CTkLabel(cols, text="Total Points", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=4, padx=8, pady=4, sticky="w")
-
-        cursor = mydb.cursor()
-        try:
-            cursor.execute("""
-                SELECT
-                    t.id,
-                    t.teamName,
-                    COALESCE(t.totalPoints, 0) AS totalPoints,
-                    COALESCE((SELECT COUNT(*) FROM games g WHERE g.is_final = 1 AND g.winner_team_id = t.id AND g.game_date BETWEEN ? AND ?), 0) AS wins,
-                    COALESCE((SELECT COUNT(*) FROM games g
-                              WHERE g.is_final = 1
-                                AND (g.team1_id = t.id OR g.team2_id = t.id)
-                                AND (g.winner_team_id IS NOT NULL AND g.winner_team_id != t.id)
-                                AND g.game_date BETWEEN ? AND ?
-                             ), 0) AS losses
-                FROM teams t
-                WHERE EXISTS (
-                    SELECT 1 FROM games g2
-                    WHERE (g2.team1_id = t.id OR g2.team2_id = t.id)
-                      AND g2.game_date BETWEEN ? AND ?
-                )
-                ORDER BY wins DESC, totalPoints DESC, t.teamName COLLATE NOCASE
-            """, (start_dt.isoformat(), end_dt.isoformat(),
-                  start_dt.isoformat(), end_dt.isoformat(),
-                  start_dt.isoformat(), end_dt.isoformat()))
-            teams = cursor.fetchall()
-        finally:
-            try:
-                cursor.close()
-            except Exception:
-                pass
-
-        if not teams:
-            empty_lbl = ctk.CTkLabel(standings_frame, text="(No teams played in this season window)", anchor="w", text_color="#BBBBBB")
-            empty_lbl.pack(fill="x", padx=16, pady=(6,8))
+        
+        # --- THE CORE QUERY ---
+        # 1. WINS: Count games where this team is the winner_team_id
+        # 2. LOSSES: Count games where this team played but did NOT win (and there was a winner)
+        # 3. POINTS: Sum team1_score or team2_score depending on which side the team was on
+        query = """
+            SELECT 
+                t.id, 
+                t.teamName,
+                
+                -- Calculate WINS
+                (SELECT COUNT(*) 
+                 FROM games g 
+                 WHERE g.winner_team_id = t.id 
+                   AND g.is_final = 1 
+                   AND g.game_date BETWEEN ? AND ?) as wins,
+                   
+                -- Calculate LOSSES
+                (SELECT COUNT(*) 
+                 FROM games g 
+                 WHERE (g.team1_id = t.id OR g.team2_id = t.id) 
+                   AND g.winner_team_id IS NOT NULL 
+                   AND g.winner_team_id != t.id 
+                   AND g.is_final = 1 
+                   AND g.game_date BETWEEN ? AND ?) as losses,
+                   
+                -- Calculate Total Points Scored
+                COALESCE((SELECT SUM(
+                    CASE 
+                        WHEN g2.team1_id = t.id THEN COALESCE(g2.team1_score, 0) 
+                        ELSE COALESCE(g2.team2_score, 0) 
+                    END) 
+                  FROM games g2 
+                  WHERE (g2.team1_id = t.id OR g2.team2_id = t.id) 
+                    AND g2.is_final = 1 
+                    AND g2.game_date BETWEEN ? AND ?), 0) as total_pts
+                            
+            FROM teams t
+            -- Optimization: Only include teams that have at least one game scheduled in this window
+            WHERE EXISTS (
+                SELECT 1 FROM games g3 
+                WHERE (g3.team1_id = t.id OR g3.team2_id = t.id) 
+                  AND g3.game_date BETWEEN ? AND ?
+            )
+            ORDER BY wins DESC, total_pts DESC
+        """
+        
+        # We must provide the date range parameters 5 times because there are 5 ? pairs in the query
+        params = (start_iso, end_iso, start_iso, end_iso, start_iso, end_iso, start_iso, end_iso)
+        
+        cur.execute(query, params)
+        teams_data = cur.fetchall()
+        cur.close()
+        
+        if not teams_data:
+            ctk.CTkLabel(frame, text="No teams active in this season.").pack()
             continue
 
-        for idx, row in enumerate(teams, start=1):
-            row_frame = ctk.CTkFrame(standings_frame, fg_color="#2A2A2A")
-            row_frame.pack(fill="x", padx=8, pady=2)
-            row_frame.grid_columnconfigure(0, weight=1)
-            row_frame.grid_columnconfigure(1, weight=3)
-            row_frame.grid_columnconfigure(2, weight=1)
-            row_frame.grid_columnconfigure(3, weight=1)
-            row_frame.grid_columnconfigure(4, weight=1)
+        for idx, row in enumerate(teams_data, 1):
+            r = ctk.CTkFrame(frame, fg_color="#2A2A2A" if idx % 2 == 0 else "#1F1F1F")
+            r.pack(fill="x", pady=1)
+            for i in range(5): r.grid_columnconfigure(i, weight=1)
+            
+            # Gold color for 1st place
+            rank_color = "#FFD700" if idx == 1 else "white"
+            
+            ctk.CTkLabel(r, text=str(idx), text_color=rank_color).grid(row=0, column=0)
+            ctk.CTkLabel(r, text=row['teamName'], text_color=rank_color).grid(row=0, column=1)
+            ctk.CTkLabel(r, text=str(row['wins'])).grid(row=0, column=2)
+            ctk.CTkLabel(r, text=str(row['losses'])).grid(row=0, column=3)
+            ctk.CTkLabel(r, text=str(row['total_pts'])).grid(row=0, column=4)
 
-            team_name = row["teamName"]
-            wins = row["wins"]
-            losses = row["losses"]
-            total_points = row["totalPoints"] if row["totalPoints"] is not None else 0
-
-            ctk.CTkLabel(row_frame, text=str(idx)).grid(row=0, column=0, padx=8, pady=6, sticky="w")
-            ctk.CTkLabel(row_frame, text=team_name).grid(row=0, column=1, padx=8, pady=6, sticky="w")
-            ctk.CTkLabel(row_frame, text=str(wins)).grid(row=0, column=2, padx=8, pady=6, sticky="w")
-            ctk.CTkLabel(row_frame, text=str(losses)).grid(row=0, column=3, padx=8, pady=6, sticky="w")
-            ctk.CTkLabel(row_frame, text=str(total_points)).grid(row=0, column=4, padx=8, pady=6, sticky="w")
-
-def build_mvp_panel():
-    mvp_frame = _widgets.get("mvp_frame")
-    if not mvp_frame:
-        container = _widgets.get("container")
-        if container:
-            refresh_standings_table(container)
-        return
-
-    for w in mvp_frame.winfo_children():
-        try:
-            w.destroy()
-        except Exception:
-            pass
-
-    ctk.CTkLabel(mvp_frame, text="Manual MVP Selector", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, padx=12, pady=(12,6), sticky="w")
-
-    team_var = ctk.StringVar(value="Select Team")
-    player_var = ctk.StringVar(value="Select Player")
-    year_var = ctk.StringVar(value="Select Season")
-
-    _widgets["team_var"] = team_var
-    _widgets["player_var"] = player_var
-    _widgets["year_var"] = year_var
-
-    ctk.CTkLabel(mvp_frame, text="Team:").grid(row=1, column=0, padx=12, pady=(8,2), sticky="w")
-    team_opt = ctk.CTkOptionMenu(mvp_frame, values=["Select Team"], variable=team_var)
-    team_opt.grid(row=2, column=0, padx=12, pady=(0,8), sticky="ew")
-    _widgets["team_opt"] = team_opt
-
-    ctk.CTkLabel(mvp_frame, text="Player:").grid(row=3, column=0, padx=12, pady=(8,2), sticky="w")
-    player_opt = ctk.CTkOptionMenu(mvp_frame, values=["Select Player"], variable=player_var)
-    player_opt.grid(row=4, column=0, padx=12, pady=(0,8), sticky="ew")
-    _widgets["player_opt"] = player_opt
-
-    ctk.CTkLabel(mvp_frame, text="Season:").grid(row=5, column=0, padx=12, pady=(8,2), sticky="w")
-    year_opt = ctk.CTkOptionMenu(mvp_frame, values=["Select Season"], variable=year_var)
-    year_opt.grid(row=6, column=0, padx=12, pady=(0,8), sticky="ew")
-    _widgets["year_opt"] = year_opt
-
-    current_lbl = ctk.CTkLabel(mvp_frame, text="Current MVP: —", wraplength=220, anchor="w", justify="left")
-    current_lbl.grid(row=7, column=0, padx=12, pady=(12,6), sticky="w")
-    _widgets["current_lbl"] = current_lbl
-
-    btn_frame = ctk.CTkFrame(mvp_frame, fg_color="#1F1F1F")
-    btn_frame.grid(row=8, column=0, padx=12, pady=8, sticky="ew")
-    btn_frame.grid_columnconfigure(0, weight=1)
-    btn_frame.grid_columnconfigure(1, weight=1)
-
-    assign_btn = ctk.CTkButton(btn_frame, text="Assign MVP", fg_color="#4CAF50")
-    assign_btn.grid(row=0, column=0, padx=6, pady=6, sticky="ew")
-    clear_btn = ctk.CTkButton(btn_frame, text="Clear MVP", fg_color="#FF6B6B")
-    clear_btn.grid(row=0, column=1, padx=6, pady=6, sticky="ew")
-
-    _widgets["assign_btn"] = assign_btn
-    _widgets["clear_btn"] = clear_btn
-
-    try:
-        team_opt.configure(command=lambda *_: on_team_change())
-    except Exception:
-        team_var.trace_add("write", lambda *_: on_team_change())
-
-    try:
-        year_opt.configure(command=lambda *_: on_year_change())
-    except Exception:
-        year_var.trace_add("write", lambda *_: on_year_change())
-
-    assign_btn.configure(command=assign_mvp)
-    clear_btn.configure(command=clear_mvp)
-
-    refresh_mvp_controls()
+# --- MVP SECTION HELPERS ---
 
 def load_team_map():
+    t_map = {}
+    names = []
     cur = mydb.cursor()
     try:
         cur.execute("SELECT id, teamName FROM teams ORDER BY teamName")
-        rows = cur.fetchall()
-        team_names = []
-        mapping = {}
-        for r in rows:
-            tid = r['id']
-            name = r['teamName']
-            team_names.append(name)
-            mapping[name] = tid
-        return team_names, mapping
+        for r in cur.fetchall():
+            t_map[r['teamName']] = r['id']
+            names.append(r['teamName'])
     finally:
-        try:
-            cur.close()
-        except Exception:
-            pass
-
-def load_players_for_team(team_id):
-    if not team_id:
-        return []
-    cur = mydb.cursor()
-    try:
-        cur.execute("SELECT id, name, jerseyNumber FROM players WHERE team_id = ? ORDER BY jerseyNumber, name", (team_id,))
-        rows = cur.fetchall()
-        out = []
-        for r in rows:
-            jid = r['id']
-            name = r['name']
-            jersey = r['jerseyNumber']
-            disp = f"#{jersey} - {name}" if jersey not in (None, '') else name
-            out.append((disp, jid))
-        return out
-    finally:
-        try:
-            cur.close()
-        except Exception:
-            pass
+        cur.close()
+    return names, t_map
 
 def load_years():
-    years = _compute_season_start_years_with_games()
-    return years
+    return _compute_season_start_years_with_games()
 
-def on_team_change(*_):
-    team_var = _widgets.get("team_var")
-    player_opt = _widgets.get("player_opt")
-    team_map = _widgets.get("team_map") or {}
-    player_var = _widgets.get("player_var")
+def build_mvp_panel():
+    parent = _widgets.get("mvp_frame")
+    if not parent: return
+    
+    for w in parent.winfo_children(): w.destroy()
+    
+    ctk.CTkLabel(parent, text="Season MVP Selection", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(12,12))
 
-    sel = team_var.get() if team_var else None
-    if player_var:
-        player_var.set("Select Player")
-    try:
-        if sel == "Select Team" or sel not in team_map:
-            if player_opt:
-                player_opt.configure(values=["Select Player"])
-                _widgets["player_mappings"][id(player_opt)] = {}
-            return
-        tid = team_map.get(sel)
-        players = load_players_for_team(tid)
-        if not players:
-            if player_opt:
-                player_opt.configure(values=["Select Player"])
-                _widgets["player_mappings"][id(player_opt)] = {}
-            return
-        p_display = [p[0] for p in players]
-        p_values = ["Select Player"] + p_display
-        _widgets["player_mappings"][id(player_opt)] = {p[0]: p[1] for p in players}
-        player_opt.configure(values=p_values)
-    except Exception:
-        if player_opt:
-            try:
-                player_opt.configure(values=["Select Player"])
-                _widgets["player_mappings"][id(player_opt)] = {}
-            except Exception:
-                pass
+    ctk.CTkLabel(parent, text="Select Season:").pack(anchor="w", padx=12, pady=(0,2))
+    year_var = ctk.StringVar(value="Select Season")
+    year_opt = ctk.CTkOptionMenu(parent, variable=year_var, values=["Select Season"], command=lambda x: on_year_change())
+    year_opt.pack(fill="x", padx=12, pady=(0,10))
+    _widgets["year_var"] = year_var
+    _widgets["year_opt"] = year_opt
 
-def on_year_change(*_):
-    year_var = _widgets.get("year_var")
-    if not year_var:
-        return
-    selected_display = year_var.get()
+    ctk.CTkLabel(parent, text="Select Team:").pack(anchor="w", padx=12, pady=(0,2))
+    team_var = ctk.StringVar(value="Select Team")
+    team_opt = ctk.CTkOptionMenu(parent, variable=team_var, values=["Select Team"], command=lambda x: on_team_change())
+    team_opt.pack(fill="x", padx=12, pady=(0,10))
+    _widgets["team_var"] = team_var
+    _widgets["team_opt"] = team_opt
 
-    year_map = _widgets.get("year_display_map", {}) or {}
-    season_start_year = None
-    if selected_display and selected_display != "Select Season":
-        season_start_year = year_map.get(selected_display)
+    ctk.CTkLabel(parent, text="Select Player:").pack(anchor="w", padx=12, pady=(0,2))
+    player_var = ctk.StringVar(value="Select Player")
+    player_opt = ctk.CTkOptionMenu(parent, variable=player_var, values=["Select Player"])
+    player_opt.pack(fill="x", padx=12, pady=(0,10))
+    _widgets["player_var"] = player_var
+    _widgets["player_opt"] = player_opt
+    
+    btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
+    btn_frame.pack(fill="x", padx=12, pady=10)
+    ctk.CTkButton(btn_frame, text="Assign MVP", command=assign_mvp, fg_color="#4CAF50").pack(side="left", expand=True, padx=(0,4))
+    ctk.CTkButton(btn_frame, text="Clear MVP", command=clear_mvp, fg_color="#D9534F").pack(side="right", expand=True, padx=(4,0))
 
-    current_lbl = _widgets.get("current_lbl")
-    team_var = _widgets.get("team_var")
-    player_var = _widgets.get("player_var")
+    _widgets["mvp_display_label"] = ctk.CTkLabel(parent, text="Current MVP: None", text_color="#FFD700", font=ctk.CTkFont(weight="bold"))
+    _widgets["mvp_display_label"].pack(pady=20)
+    
+    _widgets["player_mappings"] = {id(player_opt): {}}
 
-    if current_lbl:
-        current_lbl.configure(text="Current MVP: —")
-
-    if team_var:
-        team_var.set("Select Team")
-    if player_var:
-        player_var.set("Select Player")
-
-    try:
-        player_opt = _widgets.get("player_opt")
-        if player_opt:
-            player_opt.configure(values=["Select Player"])
-            _widgets["player_mappings"][id(player_opt)] = {}
-    except Exception:
-        pass
-
-    if not season_start_year:
-        return
-
-    cur = mydb.cursor()
-    try:
-        cur.execute("""
-            SELECT m.player_id, p.name AS player_name, p.jerseyNumber, m.team_id, t.teamName
-            FROM mvps m
-            JOIN players p ON m.player_id = p.id
-            JOIN teams t ON m.team_id = t.id
-            WHERE m.year = ?
-            """, (season_start_year,))
-        r = cur.fetchone()
-        if r:
-            pname = r['player_name']
-            jersey = r['jerseyNumber']
-            tname = r['teamName']
-            display = f"#{jersey} - {pname}" if jersey not in (None, '') else pname
-            if current_lbl:
-                current_lbl.configure(text=f"Current MVP: {display} ({tname})")
-            try:
-                team_map = _widgets.get("team_map") or {}
-                player_opt = _widgets.get("player_opt")
-                if tname in team_map:
-                    if team_var:
-                        team_var.set(tname)
-                    on_team_change()
-                    mappings = _widgets["player_mappings"].get(id(player_opt), {}) or {}
-                    if display in mappings:
-                        if player_var:
-                            player_var.set(display)
-                    else:
-                        # refresh mapping from DB if needed
-                        players = load_players_for_team(team_map[tname])
-                        p_display = [p[0] for p in players]
-                        p_values = ["Select Player"] + p_display
-                        if player_opt:
-                            player_opt.configure(values=p_values)
-                            _widgets["player_mappings"][id(player_opt)] = {p[0]: p[1] for p in players}
-                            if display in _widgets["player_mappings"][id(player_opt)]:
-                                if player_var:
-                                    player_var.set(display)
-            except Exception:
-                pass
-        else:
-            if current_lbl:
-                current_lbl.configure(text="Current MVP: —")
-    finally:
-        try:
-            cur.close()
-        except Exception:
-            pass
+    refresh_mvp_controls()
 
 def refresh_mvp_controls():
-    mvp_frame = _widgets.get("mvp_frame")
-    if not mvp_frame:
-        container = _widgets.get("container")
-        if container:
-            refresh_standings_table(container)
-        return
-
     team_names, team_map = load_team_map()
     _widgets["team_map"] = team_map
-    team_values = ["Select Team"] + team_names
+    
     team_opt = _widgets.get("team_opt")
     if team_opt:
-        try:
-            team_opt.configure(values=team_values)
-        except Exception:
-            pass
+        team_opt.configure(values=["Select Team"] + team_names)
 
-    season_start_years = load_years() or []
+    season_start_years = load_years()
     display_list = []
     display_map = {}
     for y in season_start_years:
         s, e = _season_windows_for_year(y)
         end_year = e.year if e else y
-        display = f"Season {end_year} — {s.isoformat()} → {e.isoformat()}"
+        display = f"Season {end_year}"
         display_list.append(display)
         display_map[display] = y
 
     _widgets["year_display_map"] = display_map
-
-    year_values_display = ["Select Season"] + display_list
+    
     year_opt = _widgets.get("year_opt")
     if year_opt:
-        try:
-            year_opt.configure(values=year_values_display)
-        except Exception:
-            pass
-
-    try:
-        curr = _widgets.get("year_var").get()
-    except Exception:
-        curr = None
-
-    if not curr or curr == "Select Season" or (curr not in display_map):
-        try:
-            _widgets.get("year_var").set("Select Season")
-        except Exception:
-            pass
+        year_opt.configure(values=["Select Season"] + display_list)
 
     on_year_change()
 
-def assign_mvp():
-    year_var = _widgets.get("year_var")
-    player_opt = _widgets.get("player_opt")
-    player_var = _widgets.get("player_var")
-    team_var = _widgets.get("team_var")
-    team_map = _widgets.get("team_map") or {}
+def on_year_change():
+    y_var = _widgets.get("year_var")
+    lbl = _widgets.get("mvp_display_label")
+    if not y_var: return
+    
+    sel = y_var.get()
+    display_map = _widgets.get("year_display_map", {})
+    start_year = display_map.get(sel)
+    
+    if start_year:
+        cur = mydb.cursor()
+        try:
+            cur.execute("""
+                SELECT p.name, t.teamName 
+                FROM mvps m 
+                JOIN players p ON m.player_id = p.id 
+                JOIN teams t ON m.team_id = t.id 
+                WHERE m.year = ?
+            """, (start_year,))
+            r = cur.fetchone()
+            if r:
+                lbl.configure(text=f"Current MVP: {r['name']} ({r['teamName']})")
+            else:
+                lbl.configure(text="Current MVP: None")
+        finally:
+            cur.close()
+    else:
+        lbl.configure(text="Current MVP: None")
 
-    selected_display = year_var.get() if year_var else None
-    display_map = _widgets.get("year_display_map") or {}
-    season_start_year = display_map.get(selected_display)
-
-    if not season_start_year:
-        messagebox.showwarning("Missing", "Please select a year (season).")
-        return
-
-    pdisp = player_var.get() if player_var else None
-    if not pdisp or pdisp == "Select Player":
-        messagebox.showwarning("Missing", "Please select a player.")
-        return
-
-    mappings = _widgets["player_mappings"].get(id(player_opt), {}) or {}
-    pid = mappings.get(pdisp)
-    if not pid:
-        messagebox.showwarning("Not Found", "Selected player not found. Try reloading the table.")
-        return
-
-    tname = team_var.get() if team_var else None
-    if not tname or tname == "Select Team":
-        messagebox.showwarning("Missing", "Please select the player's team.")
-        return
-    tid = team_map.get(tname)
-    if not tid:
-        messagebox.showwarning("Not Found", "Selected team not found.")
+def on_team_change():
+    t_var = _widgets.get("team_var")
+    p_opt = _widgets.get("player_opt")
+    p_var = _widgets.get("player_var")
+    t_map = _widgets.get("team_map", {})
+    
+    if not t_var or not p_opt: return
+    
+    t_name = t_var.get()
+    t_id = t_map.get(t_name)
+    
+    if not t_id:
+        p_opt.configure(values=["Select Player"])
+        p_var.set("Select Player")
         return
 
     cur = mydb.cursor()
+    players = []
+    p_mapping = {}
     try:
-        cur.execute("DELETE FROM mvps WHERE year = ?", (season_start_year,))
-        cur.execute("INSERT INTO mvps (player_id, team_id, year) VALUES (?, ?, ?)", (pid, tid, season_start_year))
-        mydb.commit()
-    except Exception as e:
-        try:
-            cur.close()
-        except Exception:
-            pass
-        messagebox.showerror("Error", f"Failed to assign MVP: {e}")
-        return
+        cur.execute("SELECT id, name FROM players WHERE team_id = ? ORDER BY name", (t_id,))
+        for r in cur.fetchall():
+            players.append(r['name'])
+            p_mapping[r['name']] = r['id']
     finally:
-        try:
-            cur.close()
-        except Exception:
-            pass
+        cur.close()
+        
+    p_opt.configure(values=["Select Player"] + players)
+    p_var.set("Select Player")
+    _widgets["player_mappings"][id(p_opt)] = p_mapping
 
-    messagebox.showinfo("Assigned", f"MVP for season-start {season_start_year} set.")
+def assign_mvp():
+    year_var = _widgets.get("year_var")
+    player_var = _widgets.get("player_var")
+    team_var = _widgets.get("team_var")
+    
+    if not all([year_var, player_var, team_var]): return
+    
+    display_map = _widgets.get("year_display_map", {})
+    season_year = display_map.get(year_var.get())
+    
+    if not season_year:
+        messagebox.showwarning("Missing", "Please select a season.")
+        return
+        
+    p_name = player_var.get()
+    p_opt = _widgets.get("player_opt")
+    mappings = _widgets["player_mappings"].get(id(p_opt), {})
+    p_id = mappings.get(p_name)
+    
+    if not p_id:
+         messagebox.showwarning("Missing", "Please select a valid player.")
+         return
+         
+    t_name = team_var.get()
+    t_map = _widgets.get("team_map", {})
+    t_id = t_map.get(t_name)
+    
+    if not t_id:
+         messagebox.showwarning("Missing", "Please select a team.")
+         return
+
+    cur = mydb.cursor()
     try:
-        refresh_mvp_controls()
-        refresh_standings_rows()
-    except Exception:
-        container = _widgets.get("container")
-        if container:
-            refresh_standings_table(container)
+        cur.execute("DELETE FROM mvps WHERE year = ?", (season_year,))
+        cur.execute("INSERT INTO mvps (player_id, team_id, year) VALUES (?, ?, ?)", (p_id, t_id, season_year))
+        mydb.commit()
+        messagebox.showinfo("Success", f"MVP assigned for Season {season_year + 1}.")
+        on_year_change() # Refresh label
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+    finally:
+        cur.close()
 
 def clear_mvp():
     year_var = _widgets.get("year_var")
-    selected_display = year_var.get() if year_var else None
-    display_map = _widgets.get("year_display_map") or {}
-    season_start_year = display_map.get(selected_display)
+    display_map = _widgets.get("year_display_map", {})
+    season_year = display_map.get(year_var.get())
+    
+    if not season_year:
+        messagebox.showwarning("Missing", "Please select a season.")
+        return
 
-    if not season_start_year:
-        messagebox.showwarning("Missing", "Please select a year (season).")
+    if not messagebox.askyesno("Confirm", "Clear MVP for this season?"):
         return
-    if not messagebox.askyesno("Clear MVP", f"Clear MVP for season-start {season_start_year}?"):
-        return
+
     cur = mydb.cursor()
     try:
-        cur.execute("DELETE FROM mvps WHERE year = ?", (season_start_year,))
+        cur.execute("DELETE FROM mvps WHERE year = ?", (season_year,))
         mydb.commit()
-    except Exception as e:
-        try:
-            cur.close()
-        except Exception:
-            pass
-        messagebox.showerror("Error", f"Failed to clear MVP: {e}")
-        return
+        messagebox.showinfo("Success", "MVP cleared.")
+        on_year_change()
     finally:
-        try:
-            cur.close()
-        except Exception:
-            pass
-
-    messagebox.showinfo("Cleared", f"MVP for season-start {season_start_year} cleared.")
-    try:
-        refresh_mvp_controls()
-        refresh_standings_rows()
-    except Exception:
-        container = _widgets.get("container")
-        if container:
-            refresh_standings_table(container)
+        cur.close()

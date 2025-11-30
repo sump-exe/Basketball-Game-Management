@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+from datetime import datetime
 
 DB_FILE = Path(__file__).with_name('sports_schedule.db')
 
@@ -12,7 +13,8 @@ cur.execute("""
 CREATE TABLE IF NOT EXISTS teams (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     teamName TEXT NOT NULL UNIQUE,
-    totalPoints INTEGER DEFAULT 0
+    totalPoints INTEGER DEFAULT 0,
+    wins INTEGER DEFAULT 0
 )
 """)
 
@@ -36,6 +38,30 @@ CREATE TABLE IF NOT EXISTS venues (
 )
 """)
 
+# --- NEW TABLE FOR SEASON TOTALS ---
+cur.execute("""
+CREATE TABLE IF NOT EXISTS team_season_totals (
+    team_id INTEGER,
+    season_year INTEGER,
+    totalPoints INTEGER DEFAULT 0,
+    PRIMARY KEY (team_id, season_year),
+    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+)
+""")
+
+# --- NEW TABLE FOR GAME-SPECIFIC PLAYER STATS ---
+cur.execute("""
+CREATE TABLE IF NOT EXISTS game_player_stats (
+    game_id INTEGER,
+    player_id INTEGER,
+    points INTEGER DEFAULT 0,
+    PRIMARY KEY (game_id, player_id),
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
+    FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+)
+""")
+
+# --- MIGRATION LOGIC FOR GAMES ---
 cur_m = mydb.cursor()
 existing_cols = [r[1] for r in cur_m.execute("PRAGMA table_info(games)").fetchall()]
 
@@ -68,40 +94,24 @@ if 'team1_id' not in existing_cols:
     has_winner = 'winner_team_id' in existing_cols
 
     select_parts = []
-    if has_home:
-        select_parts.append("home_team_id AS team1_id")
-    else:
-        select_parts.append("NULL AS team1_id")
-    if has_away:
-        select_parts.append("away_team_id AS team2_id")
-    else:
-        select_parts.append("NULL AS team2_id")
+    if has_home: select_parts.append("home_team_id AS team1_id")
+    else: select_parts.append("NULL AS team1_id")
+    if has_away: select_parts.append("away_team_id AS team2_id")
+    else: select_parts.append("NULL AS team2_id")
     select_parts.append("venue_id")
     select_parts.append("game_date")
-    if has_home_score:
-        select_parts.append("home_score AS team1_score")
-    else:
-        select_parts.append("0 AS team1_score")
-    if has_away_score:
-        select_parts.append("away_score AS team2_score")
-    else:
-        select_parts.append("0 AS team2_score")
-    if has_start:
-        select_parts.append("start_time")
-    else:
-        select_parts.append("'00:00' AS start_time")
-    if has_end:
-        select_parts.append("end_time")
-    else:
-        select_parts.append("'00:00' AS end_time")
-    if has_is_final:
-        select_parts.append("is_final")
-    else:
-        select_parts.append("0 AS is_final")
-    if has_winner:
-        select_parts.append("winner_team_id")
-    else:
-        select_parts.append("NULL AS winner_team_id")
+    if has_home_score: select_parts.append("home_score AS team1_score")
+    else: select_parts.append("0 AS team1_score")
+    if has_away_score: select_parts.append("away_score AS team2_score")
+    else: select_parts.append("0 AS team2_score")
+    if has_start: select_parts.append("start_time")
+    else: select_parts.append("'00:00' AS start_time")
+    if has_end: select_parts.append("end_time")
+    else: select_parts.append("'00:00' AS end_time")
+    if has_is_final: select_parts.append("is_final")
+    else: select_parts.append("0 AS is_final")
+    if has_winner: select_parts.append("winner_team_id")
+    else: select_parts.append("NULL AS winner_team_id")
 
     select_clause = ", ".join(select_parts)
     try:
@@ -135,6 +145,8 @@ CREATE TABLE IF NOT EXISTS mvps (
 mydb.commit()
 cur.close()
 
+# --- CLASSES ---
+
 class ScheduleManager:
     def __init__(self):
         self.mydb = mydb
@@ -154,44 +166,6 @@ class ScheduleManager:
             self.mydb.commit()
             venue.venueID = cursor.lastrowid
             cursor.close()
-
-    def displaySchedule(self):
-        cursor = self.mydb.cursor()
-        cursor.execute("""
-        SELECT g.id, t1.teamName AS team1, t2.teamName AS team2, v.venueName, g.game_date, g.team1_score, g.team2_score
-        FROM games g
-        LEFT JOIN teams t1 ON g.team1_id = t1.id
-        LEFT JOIN teams t2 ON g.team2_id = t2.id
-        LEFT JOIN venues v ON g.venue_id = v.id
-        ORDER BY g.game_date
-        """)
-        results = cursor.fetchall()
-        cursor.close()
-        print("Schedule:")
-        for row in results:
-            print(f"Game ID: {row[0]}, {row[1]} vs {row[2]} at {row[3]} on {row[4]}, Score: {row[5]}-{row[6]}")
-
-    def displayStandings(self):
-        cursor = self.mydb.cursor()
-        cursor.execute("""
-        SELECT t.teamName,
-               COALESCE(t.totalPoints, 0) AS totalPoints,
-               COALESCE((SELECT COUNT(*) FROM games g WHERE g.is_final = 1 AND g.winner_team_id = t.id), 0) AS wins,
-               COALESCE((SELECT COUNT(*) FROM games g
-                         WHERE g.is_final = 1
-                           AND (g.team1_id = t.id OR g.team2_id = t.id)
-                           AND (g.winner_team_id IS NOT NULL AND g.winner_team_id != t.id)
-                        ), 0) AS losses
-        FROM teams t
-        LEFT JOIN games g2 ON (g2.team1_id = t.id OR g2.team2_id = t.id)
-        GROUP BY t.id, t.teamName, t.totalPoints
-        ORDER BY wins DESC, totalPoints DESC
-        """)
-        results = cursor.fetchall()
-        cursor.close()
-        print("Standings:")
-        for row in results:
-            print(f"Team: {row[0]}, Wins: {row[2]}, Losses: {row[3]}, Total Points: {row[1]}")
 
     def gameResults(self, gameID):
         cursor = self.mydb.cursor()
@@ -249,7 +223,7 @@ class ScheduleManager:
 
     def endGame(self, game_id):
         cursor = self.mydb.cursor()
-        cursor.execute("SELECT team1_id, team2_id FROM games WHERE id = ?", (game_id,))
+        cursor.execute("SELECT team1_id, team2_id, team1_score, team2_score FROM games WHERE id = ?", (game_id,))
         row = cursor.fetchone()
         if not row:
             cursor.close()
@@ -257,26 +231,20 @@ class ScheduleManager:
 
         t1_id = row['team1_id']
         t2_id = row['team2_id']
-
-        cursor.execute("SELECT SUM(points) as s FROM players WHERE team_id = ?", (t1_id,))
-        hrow = cursor.fetchone()
-        t1_sum = hrow['s'] if hrow and hrow['s'] is not None else 0
-
-        cursor.execute("SELECT SUM(points) as s FROM players WHERE team_id = ?", (t2_id,))
-        arow = cursor.fetchone()
-        t2_sum = arow['s'] if arow and arow['s'] is not None else 0
+        t1_score = row['team1_score']
+        t2_score = row['team2_score']
 
         winner = None
-        if t1_sum > t2_sum:
+        if t1_score > t2_score:
             winner = t1_id
-        elif t2_sum > t1_sum:
+        elif t2_score > t1_score:
             winner = t2_id
         else:
             winner = None
+            
         cursor.execute("UPDATE games SET is_final = 1, winner_team_id = ? WHERE id = ?", (winner, game_id))
         self.mydb.commit()
         cursor.close()
-
         return winner
 
 class Venue:
@@ -314,31 +282,6 @@ class Team:
         cursor.execute("UPDATE teams SET totalPoints = ? WHERE id = ?", (self.totalPoints, self.id))
         mydb.commit()
         cursor.close()
-    def getRoster(self):
-        cursor = mydb.cursor()
-        cursor.execute("SELECT name, jerseyNumber, points FROM players WHERE team_id = ?", (self.id,))
-        results = cursor.fetchall()
-        cursor.close()
-        roster = []
-        for row in results:
-            roster.append({'name': row[0], 'jerseyNumber': row[1], 'points': row[2]})
-        return roster
-    def getRecord(self):
-        cursor = mydb.cursor()
-        cursor.execute("""
-        SELECT 
-            SUM(CASE WHEN team1_id = ? AND team1_score > team2_score THEN 1
-                     WHEN team2_id = ? AND team2_score > team1_score THEN 1 ELSE 0 END) AS wins,
-            SUM(CASE WHEN team1_id = ? AND team1_score < team2_score THEN 1
-                     WHEN team2_id = ? AND team2_score < team1_score THEN 1 ELSE 0 END) AS losses
-        FROM games
-        WHERE team1_id = ? OR team2_id = ?
-        """, (self.id, self.id, self.id, self.id, self.id, self.id))
-        result = cursor.fetchone()
-        cursor.close()
-        wins = result[0] if result[0] else 0
-        losses = result[1] if result[1] else 0
-        return {'wins': wins, 'losses': losses}
 
 class Player:
     def __init__(self, name, jerseyNumber, playerID=None):
@@ -363,5 +306,58 @@ class MVP(Player):
             cursor.execute("INSERT INTO mvps (player_id, team_id, year) VALUES (?, ?, ?)", (mvp.name, mvp.jerseyNumber, year))
             self.mydb.commit()
             cursor.close()
+
+# --- FIXED SEASON CLASS ---
+class Season:
+    def __init__(self, year=None):
+        self.year = year
+        self.season_definitions = {
+            "Pre-season": ((9, 25), (10, 16)),
+            "Regular Season": ((10, 17), (4, 16)),  
+            "Play-in": ((4, 17), (4, 24)),
+            "Playoff": ((4, 25), (6, 8)),
+            "Finals": ((6, 9), (6, 24)),
+            "Off-season": ((6, 25), (9, 24)),
+        }
+
+    # Added SELF and fixed logic
+    def get_team_points_for_season(self, team_id, season_year):
+        c = mydb.cursor()
+        c.execute("SELECT totalPoints FROM team_season_totals WHERE team_id = ? AND season_year = ?", (team_id, season_year))
+        row = c.fetchone()
+        c.close()
+        return row['totalPoints'] if row else 0
+
+    # Added SELF
+    def set_team_points_for_season(self, team_id, season_year, points):
+        c = mydb.cursor()
+        c.execute("""INSERT INTO team_season_totals (team_id, season_year, totalPoints)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(team_id, season_year) DO UPDATE SET totalPoints=excluded.totalPoints
+                """, (team_id, season_year, points))
+        mydb.commit()
+        c.close()
+
+    # Helper for other files
+    def get_range(self, season_name, start_year):
+        if season_name not in self.season_definitions:
+            return None, None
+        (sm, sd), (em, ed) = self.season_definitions[season_name]
+        start = datetime(start_year, sm, sd).date()
+        if (em, ed) < (sm, sd):
+            end = datetime(start_year + 1, em, ed).date()
         else:
-            pass
+            end = datetime(start_year, em, ed).date()
+        return start, end
+
+    def get_current_season_year(self, game_date_str):
+        try:
+            dt = datetime.strptime(game_date_str, "%Y-%m-%d").date()
+        except:
+            return 2024 # Fallback
+        
+        # Approximate logic: If Sep or later, it's start of that year's season cycle
+        if dt.month >= 9:
+            return dt.year
+        else:
+            return dt.year - 1

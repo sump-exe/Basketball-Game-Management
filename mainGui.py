@@ -48,7 +48,7 @@ file2.update_schedule_optionmenus = update_schedule_optionmenus
 file4.refs = refs
 file5.refs = refs
 
-def update_clock():
+def update_clock():     # does not show anymore for some reason
     now = datetime.now().strftime("%Y %b %d   %H:%M:%S")
     if refs.get("clock_label"):
         refs["clock_label"].configure(text=now)
