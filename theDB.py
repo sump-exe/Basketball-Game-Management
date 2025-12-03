@@ -345,7 +345,7 @@ class Season:
         try:
             dt = datetime.strptime(game_date_str, "%Y-%m-%d").date()
         except:
-            return 2024 
+            return datetime.now().year - 1
         if dt.month >= 9:
             return dt.year
         else:
