@@ -41,6 +41,7 @@ def show_team_players(team_name, players_frame):
     for w in players_frame.winfo_children():
         w.destroy()
 
+    # --- Fixed Top Section (Title, Buttons, Header) ---
     title = ctk.CTkLabel(players_frame, text=f"🏆 Team: {team_name}", font=ctk.CTkFont(size=18, weight="bold"))
     title.pack(pady=(8, 6))
 
@@ -94,27 +95,57 @@ def show_team_players(team_name, players_frame):
     del_btn = ctk.CTkButton(actions_frame, text="Delete Team", width=120, fg_color="#D9534F", hover_color="#FF6B6B", command=delete_team_cmd)
     del_btn.pack(side="right", padx=(6,0))
 
-    # New: History button in the team actions area
+    # History button
     def open_team_history_cmd():
         open_team_history_popup(team_name)
 
     history_btn = ctk.CTkButton(actions_frame, text="View Games", width=120, fg_color="#1F75FE", hover_color="#4A90E2", command=open_team_history_cmd)
     history_btn.pack(side="right", padx=(6,0))
 
+    # --- Header Row (Fixed) ---
+    header_row = ctk.CTkFrame(players_frame, fg_color="#222222")
+    header_row.pack(fill="x", padx=12, pady=(6,2))
+    ctk.CTkLabel(header_row, text="Player", anchor="w").pack(side="left", padx=(6,0))
+    ctk.CTkLabel(header_row, text="Jersey", anchor="e").pack(side="right", padx=(0,26))
+
+    # --- Scrollable Area for Players ---
+    scroll_area = ctk.CTkScrollableFrame(players_frame, fg_color="transparent")
+    scroll_area.pack(fill="both", expand=True, padx=8, pady=2)
+
+    # --- SEARCH FILTER LOGIC ---
+    search_query = ""
+    try:
+        if refs.get('teams_search_var'):
+            search_query = refs['teams_search_var'].get().strip().lower()
+    except Exception:
+        pass
+    
+    # Logic: If the search query matches the team name (e.g. searching "Lakers"), show all players.
+    # If the search query does NOT match the team name, assume user is searching for a player,
+    # so filter and show only players whose names contain the query.
+    filter_active = False
+    if search_query and (search_query not in team_name.lower()):
+        filter_active = True
+    # ---------------------------
+
     if teams.get(team_name):
-        header_row = ctk.CTkFrame(players_frame, fg_color="#222222")
-        header_row.pack(fill="x", padx=12, pady=(6,2))
-        ctk.CTkLabel(header_row, text="Player", anchor="w").pack(side="left", padx=(6,0))
-        ctk.CTkLabel(header_row, text="Jersey", anchor="e").pack(side="right", padx=(0,6))
+        visible_count = 0
         for p in teams[team_name]:
-            row = ctk.CTkFrame(players_frame, fg_color="#333333")
-            row.pack(fill="x", padx=12, pady=2)
             name = p.get('name') if isinstance(p, dict) else str(p)
             jersey = p.get('jersey') if isinstance(p, dict) else None
             pid = p.get('id') if isinstance(p, dict) else None
 
-            ctk.CTkLabel(row, text=(f"#{jersey} " if jersey is not None else ""), anchor="e").pack(side="left", padx=(0,6))
+            # Apply Filter
+            if filter_active:
+                if search_query not in name.lower():
+                    continue
+            
+            visible_count += 1
 
+            row = ctk.CTkFrame(scroll_area, fg_color="#333333")
+            row.pack(fill="x", pady=2)
+            
+            ctk.CTkLabel(row, text=(f"#{jersey} " if jersey is not None else ""), anchor="e").pack(side="left", padx=(0,6))
             ctk.CTkLabel(row, text=name, anchor="w").pack(side="left", padx=(6,0))
 
             btns = ctk.CTkFrame(row, fg_color="#333333")
@@ -171,13 +202,11 @@ def show_team_players(team_name, players_frame):
                             confirm_btn.configure(state="disabled")
                             return
                         
-                        # --- NEW VALIDATION: No Numbers in Player Name ---
                         if any(char.isdigit() for char in new_name):
                             msg_lbl.configure(text="Player name cannot contain numbers.")
                             validated['ok'] = False
                             confirm_btn.configure(state="disabled")
                             return
-                        # ------------------------------------------------
 
                         if jersey_txt == "":
                             msg_lbl.configure(text="Jersey number is required.")
@@ -253,9 +282,14 @@ def show_team_players(team_name, players_frame):
             edit_btn.pack(side="left", padx=(0,6))
             del_btn = ctk.CTkButton(btns, text="Del", width=60, height=26, command=make_delete(pid, name), hover_color="#FF6B6B")
             del_btn.pack(side="left")
-    else:
-        ctk.CTkLabel(players_frame, text="(No players yet)", text_color="#BBBBBB").pack(pady=6)
 
+        if visible_count == 0 and filter_active:
+            ctk.CTkLabel(scroll_area, text=f"No players match '{search_query}'", text_color="#BBBBBB").pack(pady=6)
+
+    else:
+        ctk.CTkLabel(scroll_area, text="(No players yet)", text_color="#BBBBBB").pack(pady=6)
+
+    # --- Add Player (Fixed at Bottom) ---
     add_frame = ctk.CTkFrame(players_frame, fg_color="#333333")
     add_frame.pack(pady=12, padx=8, fill="x")
 
@@ -275,11 +309,9 @@ def show_team_players(team_name, players_frame):
             messagebox.showwarning("Invalid", "Player name must be 50 characters or fewer.")
             return
             
-        # --- NEW VALIDATION: No Numbers in Player Name ---
         if any(char.isdigit() for char in name):
             messagebox.showwarning("Invalid", "Player name cannot contain numbers.")
             return
-        # ------------------------------------------------
 
         jersey_text = jersey_entry.get().strip()
         if jersey_text == "":
@@ -350,10 +382,12 @@ def refresh_team_sidebar(sidebar_scrollable, players_area, team_buttons_list, se
         query = search_var.get().strip().lower()
         filtered = []
         for t in team_names:
+            # Match Team Name
             if query in t.lower():
                 filtered.append(t)
                 continue
-
+            
+            # Match Player Name
             for p in teams.get(t, []):
                 p_name = p['name'] if isinstance(p, dict) else str(p)
                 if query in p_name.lower():
