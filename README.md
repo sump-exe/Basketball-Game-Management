@@ -1,11 +1,6 @@
 <h1>Basketball Game Scheduler System</h1>
 
-<h3>About</h3>
-<blockquote>
-A basketball game management system, covers pre-season up to finals and off-season.
-</blockquote>
-
-<h2>Program Description</h2>
+<h2>About</h2>
 <p>
 This application is a complete management solution for basketball leagues. It handles everything from roster management and venue tracking to complex game scheduling with conflict detection. It features a live point system for tracking game scores in real-time and automatically calculates league standings and tracks MVP awards based on game results.
 </p>
