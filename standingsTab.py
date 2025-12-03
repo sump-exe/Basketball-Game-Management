@@ -79,7 +79,7 @@ def refresh_standings_rows():
     years = _compute_season_start_years_with_games()
     
     if not years:
-        ctk.CTkLabel(frame, text="No scheduled games found in database.").pack(pady=20)
+        ctk.CTkLabel(frame, text="No finalized games found in database.").pack(pady=20)
         return
 
     for year in years:
