@@ -58,36 +58,45 @@ def show_login_screen():
     for w in app.winfo_children():
         w.destroy()
 
-    header = ctk.CTkFrame(app)
-    header.pack(fill="x", padx=12, pady=12)
+    # --- CENTERED LOGIN LOGIC ---
+    
+    # Create a container frame for the login box
+    login_card = ctk.CTkFrame(app, corner_radius=15)
+    # This places the center of the frame at exactly 50% width and 50% height of the app window
+    login_card.place(relx=0.5, rely=0.5, anchor="center")
+
     ctk.CTkLabel(
-        header,
-        text="Basketball Game Scheduler System",
-        font=ctk.CTkFont(size=20, weight="bold")
-    ).pack(side="left", padx=(6, 12))
+        login_card,
+        text="Basketball Scheduler",
+        font=ctk.CTkFont(size=24, weight="bold")
+    ).pack(pady=(40, 10), padx=50)
 
-    content = ctk.CTkFrame(app)
-    content.pack(expand=True, fill="both", padx=16, pady=20)
+    ctk.CTkLabel(login_card, text="Login", font=ctk.CTkFont(size=16)).pack(pady=(0, 20))
 
-    ctk.CTkLabel(content, text="Welcome", font=ctk.CTkFont(size=18)).pack(pady=(30, 5))
+    ctk.CTkLabel(login_card, text="Username:", font=ctk.CTkFont(size=13)).pack(pady=(0, 4), anchor="w", padx=40)
+    # Placeholder changed to "Username"
+    user_ent = ctk.CTkEntry(login_card, width=280, placeholder_text="Username")
+    user_ent.pack(pady=(0, 15), padx=40)
 
-    login_frame = ctk.CTkFrame(content)
-    login_frame.pack(pady=(5, 0))
+    ctk.CTkLabel(login_card, text="Password:", font=ctk.CTkFont(size=13)).pack(pady=(0, 4), anchor="w", padx=40)
+    # Placeholder changed to "Password"
+    pass_ent = ctk.CTkEntry(login_card, show="*", width=280, placeholder_text="Password")
+    pass_ent.pack(pady=(0, 25), padx=40)
 
-    ctk.CTkLabel(login_frame, text="Username:").pack(pady=(14, 4), anchor="w", padx=12)
-    user_ent = ctk.CTkEntry(login_frame, width=250)
-    user_ent.pack(pady=4, padx=12)
-    ctk.CTkLabel(login_frame, text="Password:").pack(pady=(8, 4), anchor="w", padx=12)
-    pass_ent = ctk.CTkEntry(login_frame, show="*", width=250)
-    pass_ent.pack(pady=4, padx=12)
-
-    def verify():
+    def verify(event=None):
+        # Credentials remain "admin" and "123"
         if user_ent.get() == "admin" and pass_ent.get() == "123":
+            # Unbind Enter key so it doesn't trigger elsewhere
+            app.unbind('<Return>')
             show_main_interface()
         else:
             messagebox.showerror("Login Failed", "Incorrect credentials")
 
-    ctk.CTkButton(login_frame, text="Login", command=verify).pack(pady=12)
+    # Allow pressing Enter to login
+    user_ent.bind("<Return>", verify)
+    pass_ent.bind("<Return>", verify)
+
+    ctk.CTkButton(login_card, text="Login", command=verify, width=280, height=35).pack(pady=(0, 40), padx=40)
 
 def show_main_interface():
     for w in app.winfo_children():
