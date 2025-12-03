@@ -55,13 +55,11 @@ def show_venue_details(venue_name):
     for w in frame.winfo_children():
         w.destroy()
 
-    # --- Scrollable Container ---
     scroll_frame = ctk.CTkScrollableFrame(frame, fg_color="transparent")
     scroll_frame.pack(fill="both", expand=True)
 
     v = venues.get(venue_name, {"address": "", "capacity": ""})
     
-    # --- Venue Info ---
     ctk.CTkLabel(scroll_frame, text=f"🏟️ {venue_name}", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(12,10))
 
     info_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
@@ -70,7 +68,6 @@ def show_venue_details(venue_name):
     ctk.CTkLabel(info_frame, text=f"📍 Address: {v['address']}", anchor="w", font=ctk.CTkFont(size=14)).pack(fill="x", pady=2)
     ctk.CTkLabel(info_frame, text=f"👥 Capacity: {v['capacity']}", anchor="w", font=ctk.CTkFont(size=14)).pack(fill="x", pady=2)
 
-    # --- Buttons ---
     btn_frame = ctk.CTkFrame(scroll_frame, fg_color="#333333")
     btn_frame.pack(pady=12, padx=12, fill="x")
 
@@ -82,7 +79,6 @@ def show_venue_details(venue_name):
             venues.pop(venue_name, None)
             cur = sched_mgr.mydb.cursor()
             try:
-                # Delete from DB by name
                 cur.execute("DELETE FROM venues WHERE venueName = ?", (venue_name,))
                 sched_mgr.mydb.commit()
             except Exception as e:
@@ -104,10 +100,8 @@ def show_venue_details(venue_name):
     delete_btn = ctk.CTkButton(btn_frame, text="Delete", command=delete_venue, hover_color="#FF4500", width=100, fg_color="#D9534F")
     delete_btn.pack(side="right", padx=12, pady=10)
 
-    # --- Scheduled Games List ---
     ctk.CTkLabel(scroll_frame, text="Scheduled Games", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(20, 8), anchor="w", padx=12)
 
-    # Fetch games for this venue
     cur = sched_mgr.mydb.cursor()
     games_list = []
     try:
@@ -135,7 +129,6 @@ def show_venue_details(venue_name):
     if not games_list:
         ctk.CTkLabel(scroll_frame, text="No games scheduled here.", text_color="#AAAAAA").pack(pady=10)
     else:
-        # Table Header
         header_row = ctk.CTkFrame(scroll_frame, fg_color="#2A2A2A")
         header_row.pack(fill="x", padx=12, pady=(0, 4))
         header_row.grid_columnconfigure(0, weight=2) # Teams
@@ -146,7 +139,6 @@ def show_venue_details(venue_name):
         ctk.CTkLabel(header_row, text="Date", font=ctk.CTkFont(weight="bold")).grid(row=0, column=1, pady=6, padx=8, sticky="w")
         ctk.CTkLabel(header_row, text="Time", font=ctk.CTkFont(weight="bold")).grid(row=0, column=2, pady=6, padx=8, sticky="w")
 
-        # Table Rows
         for g in games_list:
             row = ctk.CTkFrame(scroll_frame, fg_color="#1F1F1F")
             row.pack(fill="x", padx=12, pady=2)
@@ -211,7 +203,6 @@ def open_add_venue_popup(prefill_name=None):
         cur = sched_mgr.mydb.cursor()
         try:
             if editing:
-                # 1. Get ID of the venue we are editing using original_name
                 cur.execute("SELECT id FROM venues WHERE venueName = ?", (original_name,))
                 row = cur.fetchone()
                 if not row:
@@ -219,14 +210,12 @@ def open_add_venue_popup(prefill_name=None):
                     return
                 vid = row['id']
 
-                # 2. Check if new name exists (only if name changed)
                 if name != original_name:
                     cur.execute("SELECT 1 FROM venues WHERE venueName = ?", (name,))
                     if cur.fetchone():
                         messagebox.showwarning("Error", f"Venue '{name}' already exists.")
                         return
 
-                # 3. Update existing record
                 cur.execute("""
                     UPDATE venues 
                     SET venueName = ?, location = ?, capacity = ? 
@@ -235,8 +224,6 @@ def open_add_venue_popup(prefill_name=None):
                 sched_mgr.mydb.commit()
             
             else:
-                # Adding new venue
-                # Check for duplicate name
                 cur.execute("SELECT 1 FROM venues WHERE venueName = ?", (name,))
                 if cur.fetchone():
                     messagebox.showwarning("Error", f"Venue '{name}' already exists.")

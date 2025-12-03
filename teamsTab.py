@@ -8,7 +8,7 @@ refs = {}
 load_scheduled_games_from_db = lambda: None
 refresh_scheduled_games_table = lambda *a, **k: None
 update_schedule_optionmenus = lambda *a, **k: None
-refresh_standings_table = lambda *a, **k: None  # Added placeholder
+refresh_standings_table = lambda *a, **k: None 
 
 teams = {}
 
@@ -32,7 +32,6 @@ def load_teams_from_db():
     cur.close()
 
 def show_team_players(team_name, players_frame):
-    # record currently shown team for other helpers (history popup, etc.)
     try:
         if isinstance(refs, dict):
             refs['current_team'] = team_name
@@ -42,7 +41,6 @@ def show_team_players(team_name, players_frame):
     for w in players_frame.winfo_children():
         w.destroy()
 
-    # --- Fixed Top Section (Title, Buttons, Header) ---
     title = ctk.CTkLabel(players_frame, text=f"🏆 Team: {team_name}", font=ctk.CTkFont(size=18, weight="bold"))
     title.pack(pady=(8, 6))
 
@@ -74,18 +72,15 @@ def show_team_players(team_name, players_frame):
 
         teams.pop(team_name, None)
         
-        # Clean up any legacy standings references if they exist
         try:
             from standingsTab import standings as _standings
             _standings.pop(team_name, None)
         except Exception:
             pass
 
-        # Refresh dependent UIs
         load_scheduled_games_from_db()
         refresh_scheduled_games_table(refs.get('scheduled_games_table'))
         
-        # --- REFRESH STANDINGS TABLE HERE ---
         try:
             if refs.get('standings_table'):
                 refresh_standings_table(refs.get('standings_table'))
@@ -107,24 +102,20 @@ def show_team_players(team_name, players_frame):
     del_btn = ctk.CTkButton(actions_frame, text="Delete Team", width=120, fg_color="#D9534F", hover_color="#FF6B6B", command=delete_team_cmd)
     del_btn.pack(side="right", padx=(6,0))
 
-    # History button
     def open_team_history_cmd():
         open_team_history_popup(team_name)
 
     history_btn = ctk.CTkButton(actions_frame, text="View Games", width=120, fg_color="#1F75FE", hover_color="#4A90E2", command=open_team_history_cmd)
     history_btn.pack(side="right", padx=(6,0))
 
-    # --- Header Row (Fixed) ---
     header_row = ctk.CTkFrame(players_frame, fg_color="#222222")
     header_row.pack(fill="x", padx=12, pady=(6,2))
     ctk.CTkLabel(header_row, text="Player", anchor="w").pack(side="left", padx=(6,0))
     ctk.CTkLabel(header_row, text="Actions", anchor="e").pack(side="right", padx=(0,26))
 
-    # --- Scrollable Area for Players ---
     scroll_area = ctk.CTkScrollableFrame(players_frame, fg_color="transparent")
     scroll_area.pack(fill="both", expand=True, padx=8, pady=2)
 
-    # --- SEARCH FILTER LOGIC ---
     search_query = ""
     try:
         if refs.get('teams_search_var'):
@@ -135,7 +126,6 @@ def show_team_players(team_name, players_frame):
     filter_active = False
     if search_query and (search_query not in team_name.lower()):
         filter_active = True
-    # ---------------------------
 
     if teams.get(team_name):
         visible_count = 0
@@ -144,7 +134,6 @@ def show_team_players(team_name, players_frame):
             jersey = p.get('jersey') if isinstance(p, dict) else None
             pid = p.get('id') if isinstance(p, dict) else None
 
-            # Apply Filter
             if filter_active:
                 if search_query not in name.lower():
                     continue
@@ -298,7 +287,6 @@ def show_team_players(team_name, players_frame):
     else:
         ctk.CTkLabel(scroll_area, text="(No players yet)", text_color="#BBBBBB").pack(pady=6)
 
-    # --- Add Player (Fixed at Bottom) ---
     add_frame = ctk.CTkFrame(players_frame, fg_color="#333333")
     add_frame.pack(pady=12, padx=8, fill="x")
 
@@ -308,7 +296,6 @@ def show_team_players(team_name, players_frame):
     entry = ctk.CTkEntry(add_frame, placeholder_text="Player name")
     entry.pack(side="left", expand=True, fill="x", padx=(8, 6), pady=8)
 
-    # MODIFIED: accept 'event' arg to allow binding to keys
     def add_player_cmd(event=None):
         name = entry.get().strip()
         if not name:
@@ -369,7 +356,6 @@ def show_team_players(team_name, players_frame):
         entry.delete(0, "end")
         jersey_entry.delete(0, "end")
         
-        # Focus back on jersey for rapid entry
         jersey_entry.focus_set()
 
         show_team_players(team_name, players_frame)
@@ -379,7 +365,6 @@ def show_team_players(team_name, players_frame):
             refs.get('tab3_venue_opt')
         )
 
-    # Bind Enter key to triggering add_player_cmd
     jersey_entry.bind("<Return>", add_player_cmd)
     entry.bind("<Return>", add_player_cmd)
 
@@ -400,12 +385,10 @@ def refresh_team_sidebar(sidebar_scrollable, players_area, team_buttons_list, se
         query = search_var.get().strip().lower()
         filtered = []
         for t in team_names:
-            # Match Team Name
             if query in t.lower():
                 filtered.append(t)
                 continue
             
-            # Match Player Name
             for p in teams.get(t, []):
                 p_name = p['name'] if isinstance(p, dict) else str(p)
                 if query in p_name.lower():
@@ -452,11 +435,9 @@ def open_add_team_popup(prefill_name=None):
             messagebox.showwarning("Missing", "Team name cannot be empty.")
             return
 
-        # --- NEW VALIDATION: No Numbers in Team Name ---
         if any(char.isdigit() for char in name):
             messagebox.showwarning("Invalid", "Team name cannot contain numbers.")
             return
-        # -----------------------------------------------
 
         if editing:
             cur = sched_mgr.mydb.cursor()
@@ -468,7 +449,6 @@ def open_add_team_popup(prefill_name=None):
                     return
                 team_id = row['id']
                 
-                # Check for duplicate name ONLY if the name has changed
                 if name != original_name:
                     cur.execute("SELECT 1 FROM teams WHERE teamName = ?", (name,))
                     if cur.fetchone():
@@ -484,8 +464,6 @@ def open_add_team_popup(prefill_name=None):
                 cur.close()
 
         else:
-            # Adding a new team
-            # First check if it already exists
             cur = sched_mgr.mydb.cursor()
             try:
                 cur.execute("SELECT 1 FROM teams WHERE teamName = ?", (name,))
@@ -495,7 +473,6 @@ def open_add_team_popup(prefill_name=None):
             finally:
                 cur.close()
 
-            # Proceed to add
             try:
                 t = Team(name)
                 sched_mgr.addTeam(t)
@@ -517,7 +494,6 @@ def open_add_team_popup(prefill_name=None):
         try:
             refresh_team_sidebar(refs.get('teams_sidebar_scroll'), refs.get('team_players_area'), refs.get('teams_buttons'), refs.get('teams_search_var'))
             
-            # If currently viewing the edited team, allow the sidebar to update/reselect naturally
             if editing and original_name and refs.get('current_team') == original_name:
                 show_team_players(name, refs.get('team_players_area'))
 
@@ -533,9 +509,6 @@ def open_add_team_popup(prefill_name=None):
     ctk.CTkButton(win, text=btn_text, command=save_team, hover_color="#4A90E2").pack(pady=12)
 
 def open_team_history_popup(team_name=None):
-    """Show a popup with the selected team's game history.
-    If team_name is None, attempts to use refs['current_team'] set by show_team_players.
-    """
     sel_team = team_name or (refs.get('current_team') if isinstance(refs, dict) else None)
     if not sel_team:
         messagebox.showwarning("No Team Selected", "No team selected. Open a team first from the sidebar.")
@@ -631,12 +604,11 @@ def open_team_history_popup(team_name=None):
         row.grid_columnconfigure(3, weight=1)
 
         ctk.CTkLabel(row, text=f"{date} {start}-{end}", anchor="w").grid(row=0, column=0, padx=8, pady=4, sticky="w")
-        # show opponent name (no "Home"/"Away" semantics)
+
         ctk.CTkLabel(row, text=f"vs {opponent}", anchor="w").grid(row=0, column=1, padx=8, pady=4, sticky="w")
         ctk.CTkLabel(row, text=venue, anchor="w").grid(row=0, column=2, padx=8, pady=4, sticky="w")
         ctk.CTkLabel(row, text=f"{status}{(' • ' + result) if result else ''}", anchor="w").grid(row=0, column=3, padx=8, pady=4, sticky="w")
 
-        # small second-line with score when finalized
         if is_final:
             score_lbl = ctk.CTkLabel(row, text=f"Score: {score_display}", text_color="#FFD700")
             score_lbl.grid(row=1, column=0, columnspan=4, sticky="w", padx=8, pady=(0,6))

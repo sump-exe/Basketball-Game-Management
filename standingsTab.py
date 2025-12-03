@@ -12,28 +12,20 @@ def _season_windows_for_year(year):
     associated with a specific start year (e.g., 2024 season starts late 2023).
     """
     s_helper = Season()
-    # "Pre-season" acts as the start boundary
     start, _ = s_helper.get_range("Pre-season", year)
-    # "Off-season" acts as the end boundary (of the NEXT calendar year)
     _, end = s_helper.get_range("Off-season", year + 1)
     return start, end
 
 def _compute_season_start_years_with_games():
-    """
-    Scans the database to find which years actually have scheduled games.
-    """
     cur = mydb.cursor()
     try:
-        # Find the range of years present in the games table
         cur.execute("SELECT MIN(substr(game_date,1,4)) as miny, MAX(substr(game_date,1,4)) as maxy FROM games WHERE game_date IS NOT NULL")
         r = cur.fetchone()
         if not r or not r['miny']: return []
         
         years = []
-        # Check every year in that range to see if it falls into a valid season window
         for y in range(int(r['miny'])-1, int(r['maxy'])+1):
             s, e = _season_windows_for_year(y)
-            # Efficiently check if at least 1 game exists in this window
             cur.execute("SELECT 1 FROM games WHERE game_date BETWEEN ? AND ? LIMIT 1", (s.isoformat(), e.isoformat()))
             if cur.fetchone(): years.append(y)
         
@@ -56,12 +48,10 @@ def refresh_standings_table(container):
     content = ctk.CTkFrame(container)
     content.pack(fill="both", expand=True)
     
-    # Left side: Standings Table
     standings_frame = ctk.CTkScrollableFrame(content, width=700, height=500)
     standings_frame.pack(side="left", fill="both", expand=True, padx=8)
     _widgets["standings_frame"] = standings_frame
     
-    # Right side: MVP Controls
     mvp_frame = ctk.CTkFrame(content, width=300, height=500)
     mvp_frame.pack(side="right", fill="y", padx=8)
     _widgets["mvp_frame"] = mvp_frame
@@ -86,14 +76,12 @@ def refresh_standings_rows():
         s, e = _season_windows_for_year(year)
         start_iso, end_iso = s.isoformat(), e.isoformat()
         
-        # --- Season Header & MVP Display ---
         header_frame = ctk.CTkFrame(frame, fg_color="#333333")
         header_frame.pack(fill="x", pady=(15, 5))
         
         base_header_text = _format_season_header(year)
         final_header_text = base_header_text
 
-        # Fetch MVP for this specific season year to display in header
         cur_mvp = mydb.cursor()
         try:
             cur_mvp.execute("""
@@ -113,7 +101,6 @@ def refresh_standings_rows():
 
         ctk.CTkLabel(header_frame, text=final_header_text, font=ctk.CTkFont(size=16, weight="bold")).pack(pady=5)
         
-        # Table Headers
         cols = ctk.CTkFrame(frame, fg_color="transparent")
         cols.pack(fill="x")
         headers = ["Rank", "Team", "Wins", "Losses", "Points Scored"]
@@ -123,7 +110,6 @@ def refresh_standings_rows():
             
         cur = mydb.cursor()
         
-        # --- THE CORE QUERY ---
         query = """
             SELECT 
                 t.id, 
@@ -166,7 +152,6 @@ def refresh_standings_rows():
             ORDER BY wins DESC, total_pts DESC
         """
         
-        # We must provide the date range parameters 5 times because there are 5 ? pairs in the query
         params = (start_iso, end_iso, start_iso, end_iso, start_iso, end_iso, start_iso, end_iso)
         
         cur.execute(query, params)
@@ -182,7 +167,6 @@ def refresh_standings_rows():
             r.pack(fill="x", pady=1)
             for i in range(5): r.grid_columnconfigure(i, weight=1)
             
-            # Gold color for 1st place
             rank_color = "#FFD700" if idx == 1 else "white"
             
             ctk.CTkLabel(r, text=str(idx), text_color=rank_color).grid(row=0, column=0)
@@ -190,8 +174,6 @@ def refresh_standings_rows():
             ctk.CTkLabel(r, text=str(row['wins'])).grid(row=0, column=2)
             ctk.CTkLabel(r, text=str(row['losses'])).grid(row=0, column=3)
             ctk.CTkLabel(r, text=str(row['total_pts'])).grid(row=0, column=4)
-
-# --- MVP SECTION HELPERS ---
 
 def load_team_map():
     t_map = {}
@@ -291,7 +273,6 @@ def on_year_change():
     start_year = display_map.get(sel)
     
     if start_year:
-        # 1. Update MVP Label
         cur = mydb.cursor()
         try:
             cur.execute("""
@@ -307,7 +288,6 @@ def on_year_change():
             else:
                 lbl.configure(text="Current MVP: None")
             
-            # 2. Filter Team Dropdown (Show only teams active in this season)
             s, e = _season_windows_for_year(start_year)
             cur.execute("""
                 SELECT DISTINCT t.teamName 
@@ -322,7 +302,6 @@ def on_year_change():
             if team_opt:
                 team_opt.configure(values=["Select Team"] + valid_teams)
             
-            # Reset dropdowns if the currently selected team is invalid for this season
             if team_var and team_var.get() != "Select Team" and team_var.get() not in valid_teams:
                 team_var.set("Select Team")
                 if player_opt: player_opt.configure(values=["Select Player"])
@@ -332,7 +311,6 @@ def on_year_change():
             cur.close()
     else:
         lbl.configure(text="Current MVP: None")
-        # If no season selected, revert to showing all teams
         all_teams = sorted(list(_widgets.get("team_map", {}).keys()))
         if team_opt:
              team_opt.configure(values=["Select Team"] + all_teams)
@@ -405,8 +383,7 @@ def assign_mvp():
         cur.execute("INSERT INTO mvps (player_id, team_id, year) VALUES (?, ?, ?)", (p_id, t_id, season_year))
         mydb.commit()
         messagebox.showinfo("Success", f"MVP assigned for Season {season_year + 1}.")
-        on_year_change() # Refresh label
-        # Also refresh table to show new header immediately
+        on_year_change() 
         refresh_standings_rows()
     except Exception as e:
         messagebox.showerror("Error", str(e))

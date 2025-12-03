@@ -20,7 +20,6 @@ def show_game_details(index, game_data=None):
     winner_text = "TBD"
     if is_final:
         if game.get('winner_team_id'):
-            # Determine winner name based on ID
             w_id = game.get('winner_team_id')
             if w_id == game.get('team1_id'):
                 winner_text = game.get('team1')
@@ -121,10 +120,8 @@ def refresh_scheduled_games_table(table_frame):
     for widget in table_frame.winfo_children():
         widget.destroy()
 
-    # FORCE RELOAD to see 'Ended' status immediately
     src_games = _fetch_games_from_db_direct()
     
-    # Update shared list if possible
     try:
         import scheduleGameTab as sgt
         sgt.scheduled_games.clear()
@@ -141,23 +138,18 @@ def refresh_scheduled_games_table(table_frame):
     for year in years:
         start_dt, end_dt = _season_windows_for_year(year)
         
-        # Header
         h = ctk.CTkFrame(table_frame, fg_color="#1E1E1E")
         h.pack(fill="x", padx=8, pady=(12, 6))
         ctk.CTkLabel(h, text=_format_season_header(year), font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=8, pady=6)
 
-        # Columns
         cols = ctk.CTkFrame(table_frame, fg_color="#1F1F1F")
         cols.pack(fill="x", padx=8, pady=(0, 4))
         
-        # REMOVED "Edit" from headers
         headers = ["Team 1", "Team 2", "Venue", "Date", "Season", "Score", "Status", "View", "Delete"]
         for i, t in enumerate(headers):
-            # Adjusted weight logic for the reduced column count
             cols.grid_columnconfigure(i, weight=1 if i <= 6 else 0)
             ctk.CTkLabel(cols, text=t, font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=i, padx=8, pady=4, sticky="w")
 
-        # Filter games
         group_games = []
         for g in src_games:
             dt = _parse_iso(g.get('date'))
@@ -174,7 +166,6 @@ def refresh_scheduled_games_table(table_frame):
             row = ctk.CTkFrame(table_frame, fg_color="#2A2A2A")
             row.pack(fill="x", padx=8, pady=2)
             
-            # Adjusted range to 9 columns (since Edit was removed)
             for i in range(9): 
                 row.grid_columnconfigure(i, weight=1 if i <= 6 else 0)
 
@@ -189,7 +180,6 @@ def refresh_scheduled_games_table(table_frame):
             score_txt = f"{s1} - {s2}"
             ctk.CTkLabel(row, text=score_txt).grid(row=0, column=5, sticky="w", padx=8)
 
-            # Status
             is_fin = bool(game.get('is_final'))
             status = "Final" if is_fin else "Active"
             color = "#D9534F" if is_fin else "#7CFC00"
@@ -197,12 +187,10 @@ def refresh_scheduled_games_table(table_frame):
             
             ctk.CTkButton(row, text="View", width=60, command=lambda g=game, i=idx_in_group: show_game_details(i, g)).grid(row=0, column=7, padx=4)
             
-            # FIXED: Pass game['id'] instead of index
             ctk.CTkButton(row, text="Delete", width=60, fg_color="#F44336", 
                           command=lambda gid=game['id']: delete_scheduled_game(gid)).grid(row=0, column=8, padx=4)
 
 def delete_scheduled_game(game_id):
-    # FIXED: Accept game_id and delete directly without list indexing
     if messagebox.askyesno("Delete", "Delete this game?"):
         sm = ScheduleManager()
         try:

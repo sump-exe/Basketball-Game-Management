@@ -38,7 +38,6 @@ CREATE TABLE IF NOT EXISTS venues (
 )
 """)
 
-# --- NEW TABLE FOR SEASON TOTALS ---
 cur.execute("""
 CREATE TABLE IF NOT EXISTS team_season_totals (
     team_id INTEGER,
@@ -49,7 +48,6 @@ CREATE TABLE IF NOT EXISTS team_season_totals (
 )
 """)
 
-# --- NEW TABLE FOR GAME-SPECIFIC PLAYER STATS ---
 cur.execute("""
 CREATE TABLE IF NOT EXISTS game_player_stats (
     game_id INTEGER,
@@ -61,7 +59,6 @@ CREATE TABLE IF NOT EXISTS game_player_stats (
 )
 """)
 
-# --- MIGRATION LOGIC FOR GAMES ---
 cur_m = mydb.cursor()
 existing_cols = [r[1] for r in cur_m.execute("PRAGMA table_info(games)").fetchall()]
 
@@ -144,8 +141,6 @@ CREATE TABLE IF NOT EXISTS mvps (
 
 mydb.commit()
 cur.close()
-
-# --- CLASSES ---
 
 class ScheduleManager:
     def __init__(self):
@@ -307,7 +302,6 @@ class MVP(Player):
             self.mydb.commit()
             cursor.close()
 
-# --- FIXED SEASON CLASS ---
 class Season:
     def __init__(self, year=None):
         self.year = year
@@ -320,7 +314,6 @@ class Season:
             "Off-season": ((6, 25), (9, 24)),
         }
 
-    # Added SELF and fixed logic
     def get_team_points_for_season(self, team_id, season_year):
         c = mydb.cursor()
         c.execute("SELECT totalPoints FROM team_season_totals WHERE team_id = ? AND season_year = ?", (team_id, season_year))
@@ -328,7 +321,6 @@ class Season:
         c.close()
         return row['totalPoints'] if row else 0
 
-    # Added SELF
     def set_team_points_for_season(self, team_id, season_year, points):
         c = mydb.cursor()
         c.execute("""INSERT INTO team_season_totals (team_id, season_year, totalPoints)
@@ -338,7 +330,6 @@ class Season:
         mydb.commit()
         c.close()
 
-    # Helper for other files
     def get_range(self, season_name, start_year):
         if season_name not in self.season_definitions:
             return None, None
@@ -354,9 +345,7 @@ class Season:
         try:
             dt = datetime.strptime(game_date_str, "%Y-%m-%d").date()
         except:
-            return 2024 # Fallback
-        
-        # Approximate logic: If Sep or later, it's start of that year's season cycle
+            return 2024 
         if dt.month >= 9:
             return dt.year
         else:

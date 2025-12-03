@@ -3,14 +3,12 @@ from tkinter import messagebox
 from theDB import *
 
 def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
-    # 1. Clear existing widgets
     for w in parent.winfo_children():
         try:
             w.destroy()
         except Exception:
             pass
 
-    # 2. Configure Grid
     try:
         parent.grid_columnconfigure(0, weight=1)
         parent.grid_columnconfigure(1, weight=1)
@@ -18,7 +16,6 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
     except Exception:
         pass
 
-    # --- Top Bar (Back button, Title, End Game) ---
     top_frame = ctk.CTkFrame(parent)
     top_frame.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=12, pady=(8,6))
     top_frame.grid_columnconfigure(0, weight=0)
@@ -39,7 +36,6 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
         except Exception:
             pass
 
-        # Reconstruct View Games Layout
         ctk.CTkLabel(parent, text="Scheduled Games",
                      font=ctk.CTkFont(size=18, weight="bold")).grid(
             row=0, column=0, padx=10, pady=10, sticky="w"
@@ -55,7 +51,6 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
                                      justify="left", anchor="nw")
         details_label.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Attempt to refresh the games table
         vgt = None
         try:
             import viewGamesTab as vgt_mod
@@ -107,10 +102,8 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
     right_frame = ctk.CTkScrollableFrame(container)
     right_frame.grid(row=0, column=1, sticky="nsew", padx=(6,0))
 
-    # --- Helper Functions ---
 
     def get_game_team_total(g_id, t_id):
-        # Calculate sum from game_player_stats for this game and team
         cur = mydb.cursor()
         try:
             cur.execute("""
@@ -125,16 +118,11 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
             cur.close()
 
     def modify_points(player_id, entry_widget, label_widget, team_id, multiplier=1):
-        """
-        multiplier: 1 for ADD, -1 for SUBTRACT
-        """
-        # 1. Capture and Validate Points
         txt = entry_widget.get().strip()
         if not txt:
             return
         try:
             pts_val = int(txt) 
-            # --- NEW VALIDATION: Must be > 0 ---
             if pts_val <= 0:
                 messagebox.showwarning("Invalid", "Points input must be greater than 0.")
                 entry_widget.delete(0, "end")
@@ -144,17 +132,14 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
             entry_widget.delete(0, "end")
             return
 
-        # 2. Check if Game is Final
         sm = ScheduleManager()
         if sm.isGameFinal(game_id):
             messagebox.showwarning("Game Final", "This game has ended. Cannot modify points.")
             entry_widget.delete(0, "end")
             return
         
-        # Calculate actual change (+ve or -ve)
         pts_inc = pts_val * multiplier
 
-        # 3. Check for Negative Total (if subtracting)
         cur = mydb.cursor()
         try:
             if multiplier == -1:
@@ -168,21 +153,15 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
                     cur.close()
                     return
 
-            # 4. Update Database
-            # A. Update GAME SPECIFIC STATS (game_player_stats)
-            # UPSERT: Insert if not exists, else update
             cur.execute("""
                 INSERT INTO game_player_stats (game_id, player_id, points) 
                 VALUES (?, ?, ?)
                 ON CONFLICT(game_id, player_id) 
                 DO UPDATE SET points = points + ?
-            """, (game_id, player_id, pts_inc, pts_inc)) # For insert, uses pts_inc (e.g. 5 or -5). Note: insert -5 technically possible via SQL but checked above.
+            """, (game_id, player_id, pts_inc, pts_inc)) 
 
-            # B. Update Total (Career) Points in Players table
             cur.execute("UPDATE players SET points = points + ? WHERE id = ?", (pts_inc, player_id))
             
-            # C. Update GAMES table score (Critical for viewGamesTab)
-            # We recalculate the total for the team in this game to be safe
             cur.execute("""
                 SELECT SUM(gps.points) FROM game_player_stats gps
                 JOIN players p ON gps.player_id = p.id
@@ -200,7 +179,6 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
                 
             mydb.commit()
             
-            # D. Get new specific game points for label
             cur.execute("SELECT points FROM game_player_stats WHERE game_id = ? AND player_id = ?", (game_id, player_id))
             r = cur.fetchone()
             new_player_game_points = r['points'] if r else 0
@@ -211,13 +189,10 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
         finally:
             cur.close()
 
-        # 5. Update UI
         current_text = label_widget.cget("text")
-        # Regex or split might be fragile if name has " | ". Assuming standard format:
         name_part = current_text.split(" | Points: ")[0]
         label_widget.configure(text=f"{name_part} | Points: {new_player_game_points}")
         
-        # Update Team Total Header
         new_total = get_game_team_total(game_id, team_id)
         if team_id in team_total_labels:
             team_total_labels[team_id].configure(text=f"Total Points: {new_total}")
@@ -234,7 +209,6 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
             except: pass
 
     def load_team_game_data(t_id, g_id):
-        # Fetch players AND their points for THIS game
         cur = mydb.cursor()
         try:
             cur.execute("SELECT teamName FROM teams WHERE id = ?", (t_id,))
@@ -242,7 +216,6 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
             if not row: return "Unknown Team", []
             tname = row['teamName']
             
-            # LEFT JOIN to get stats if they exist, else 0
             query = """
                 SELECT p.id, p.name, p.jerseyNumber, p.team_id,
                        COALESCE(gps.points, 0) as game_points
@@ -283,19 +256,16 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
                 jersey = f"#{p['jerseyNumber']}" if p.get('jerseyNumber') is not None else ""
                 name_text = f"{jersey} - {p['name']}" if jersey else p['name']
                 
-                # Display GAME SPECIFIC POINTS
                 lbl = ctk.CTkLabel(row, text=f"{name_text} | Points: {p['points']}", anchor="w")
                 lbl.pack(side="left", fill="x", expand=True, padx=(6,0))
                 
                 ent = ctk.CTkEntry(row, width=60, placeholder_text="Pts")
                 ent.pack(side="left", padx=(6,4))
                 
-                # ADD BUTTON
                 btn_add = ctk.CTkButton(row, text="Add", width=50, fg_color="#4CAF50", hover_color="#45a049",
                                     command=lambda pid=p['id'], e=ent, l=lbl, tid=team_id: modify_points(pid, e, l, tid, 1))
                 btn_add.pack(side="left", padx=(2,2))
 
-                # SUB BUTTON
                 btn_sub = ctk.CTkButton(row, text="Sub", width=50, fg_color="#D9534F", hover_color="#C9302C",
                                     command=lambda pid=p['id'], e=ent, l=lbl, tid=team_id: modify_points(pid, e, l, tid, -1))
                 btn_sub.pack(side="left", padx=(2,6))
@@ -335,15 +305,12 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
         if not messagebox.askyesno("End Game", "End this game? This will determine the winner based on current scores."):
             return
 
-        # 2. Determine Winner Explicitly (Robust Logic)
         cur = mydb.cursor()
         winner_id = None
         try:
-            # Re-fetch the latest scores from GAMES table (updated by modify_points)
             cur.execute("SELECT team1_score, team2_score, team1_id, team2_id FROM games WHERE id = ?", (game_id,))
             row = cur.fetchone()
             if row:
-                # Force 0 if NULL to prevent comparison errors
                 s1 = int(row['team1_score'] or 0)
                 s2 = int(row['team2_score'] or 0)
                 
@@ -352,12 +319,9 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
                 elif s2 > s1:
                     winner_id = row['team2_id']
                 else:
-                    winner_id = None # Tie
-            
-            # 3. Update Game as Final with Winner
+                    winner_id = None 
             cur.execute("UPDATE games SET is_final = 1, winner_team_id = ? WHERE id = ?", (winner_id, game_id))
             
-            # Update legacy wins count in teams table if desired
             if winner_id:
                 cur.execute("UPDATE teams SET wins = wins + 1 WHERE id = ?", (winner_id,))
                 
@@ -366,14 +330,12 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
             disable_interactive_widgets()
             display_winner_label(winner_id)
             
-            # 4. Refresh Standings Table
             try:
                 import standingsTab as st
                 tbl = st.refs.get('standings_table')
                 if tbl: st.refresh_standings_table(tbl)
             except: pass
             
-            # 5. Refresh View Games Table
             try:
                 import viewGamesTab as vgt
                 tbl = vgt.refs.get('scheduled_games_table')
@@ -389,7 +351,6 @@ def load_point_system_into_frame(parent, game_id, team1_id, team2_id):
     end_btn = ctk.CTkButton(top_frame, text="End Game", width=110, command=end_game_action)
     end_btn.grid(row=0, column=3, padx=6, pady=6, sticky="e")
 
-    # If game is already final on load, lock UI
     sm = ScheduleManager()
     try:
         if sm.isGameFinal(game_id):

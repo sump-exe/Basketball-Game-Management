@@ -42,14 +42,14 @@ refresh_standings_table = file5.refresh_standings_table
 file1.load_scheduled_games_from_db = load_scheduled_games_from_db
 file1.refresh_scheduled_games_table = refresh_scheduled_games_table
 file1.update_schedule_optionmenus = update_schedule_optionmenus
-file1.refresh_standings_table = refresh_standings_table  # INJECTED REFRESH FUNCTION
+file1.refresh_standings_table = refresh_standings_table
 
 file2.update_schedule_optionmenus = update_schedule_optionmenus
 
 file4.refs = refs
 file5.refs = refs
 
-def update_clock():     # does not show anymore for some reason
+def update_clock():
     now = datetime.now().strftime("%Y %b %d   %H:%M:%S")
     if refs.get("clock_label"):
         refs["clock_label"].configure(text=now)
@@ -59,11 +59,7 @@ def show_login_screen():
     for w in app.winfo_children():
         w.destroy()
 
-    # --- CENTERED LOGIN LOGIC ---
-    
-    # Create a container frame for the login box
     login_card = ctk.CTkFrame(app, corner_radius=15)
-    # This places the center of the frame at exactly 50% width and 50% height of the app window
     login_card.place(relx=0.5, rely=0.5, anchor="center")
 
     ctk.CTkLabel(
@@ -75,25 +71,22 @@ def show_login_screen():
     ctk.CTkLabel(login_card, text="Login", font=ctk.CTkFont(size=16)).pack(pady=(0, 20))
 
     ctk.CTkLabel(login_card, text="Username:", font=ctk.CTkFont(size=13)).pack(pady=(0, 4), anchor="w", padx=40)
-    # Placeholder changed to "Username"
+ 
     user_ent = ctk.CTkEntry(login_card, width=280, placeholder_text="Username")
     user_ent.pack(pady=(0, 15), padx=40)
 
     ctk.CTkLabel(login_card, text="Password:", font=ctk.CTkFont(size=13)).pack(pady=(0, 4), anchor="w", padx=40)
-    # Placeholder changed to "Password"
+
     pass_ent = ctk.CTkEntry(login_card, show="*", width=280, placeholder_text="Password")
     pass_ent.pack(pady=(0, 25), padx=40)
 
     def verify(event=None):
-        # Credentials remain "admin" and "123"
         if user_ent.get() == "admin" and pass_ent.get() == "123":
-            # Unbind Enter key so it doesn't trigger elsewhere
             app.unbind('<Return>')
             show_main_interface()
         else:
             messagebox.showerror("Login Failed", "Incorrect credentials")
 
-    # Allow pressing Enter to login
     user_ent.bind("<Return>", verify)
     pass_ent.bind("<Return>", verify)
 
@@ -105,7 +98,6 @@ def show_main_interface():
     print("[mainGui] Entering main interface")
 
     try:
-        # Header
         header = ctk.CTkFrame(app)
         header.pack(fill="x", padx=8, pady=8)
 
@@ -127,7 +119,6 @@ def show_main_interface():
         tabview = ctk.CTkTabview(app, width=980, height=520)
         tabview.pack(padx=10, pady=(6, 12), expand=True, fill="both")
 
-        # Always add tabs...
         tabview.add("Teams & Players")
         tabview.add("Venues")
         tabview.add("Schedule Game")
@@ -137,7 +128,6 @@ def show_main_interface():
 
         refs['tabview'] = tabview
 
-        # --- Teams & Players ---
         tab1 = tabview.tab("Teams & Players")
         tab1.grid_columnconfigure(1, weight=1)
         try:
@@ -178,7 +168,6 @@ def show_main_interface():
 
             teams_search_var.trace("w", on_team_search)
 
-            # Load/populate
             load_teams_from_db()
             refresh_team_sidebar(
                 teams_sidebar_scroll, team_players_area, teams_buttons
@@ -187,7 +176,6 @@ def show_main_interface():
             print(f"[mainGui] Exception in Teams & Players tab: {e}")
             ctk.CTkLabel(tab1, text=f"Error: {e}").pack()
 
-        # --- Venues ---
         tab2 = tabview.tab("Venues")
         tab2.grid_columnconfigure(1, weight=1)
         try:
@@ -231,7 +219,6 @@ def show_main_interface():
             print(f"[mainGui] Exception in Venues tab: {e}")
             ctk.CTkLabel(tab2, text=f"Error: {e}").pack()
 
-        # --- Schedule Game ---
         tab3 = tabview.tab("Schedule Game")
         tab3.grid_columnconfigure(0, weight=1)
         tab3.grid_columnconfigure(1, weight=1)
@@ -257,7 +244,6 @@ def show_main_interface():
             print(f"[mainGui] Exception in Schedule Game tab: {e}")
             ctk.CTkLabel(tab3, text=f"Error: {e}").pack()
 
-        # --- View Games ---
         tab4 = tabview.tab("View Games")
         tab4.grid_columnconfigure(1, weight=1)
         tab4.grid_rowconfigure(1, weight=1)
@@ -304,7 +290,6 @@ def show_main_interface():
             print(f"[mainGui] Exception in View Games tab: {e}")
             ctk.CTkLabel(tab4, text=f"Error: {e}").pack()
 
-        # --- Standings ---
         tab5 = tabview.tab("Standings")
         tab5.grid_columnconfigure(0, weight=1)
         tab5.grid_rowconfigure(1, weight=1)
@@ -337,7 +322,6 @@ def show_main_interface():
         except Exception as e:
             print(f"[mainGui] sidebar refresh: {e}")
 
-        # Bottom right clock
         clock_label = ctk.CTkLabel(app, text="", font=ctk.CTkFont(size=14))
         clock_label.place(relx=1.0, rely=1.0, anchor="se", x=-15, y=-10)
         refs["clock_label"] = clock_label
