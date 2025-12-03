@@ -417,35 +417,71 @@ def update_game_preview():
     year = refs.get('tab3_year_entry').get().strip() if refs.get('tab3_year_entry') else ""
     md = refs.get('tab3_date_entry').get().strip() if refs.get('tab3_date_entry') else ""
     
-    if season or year: lines.append(f"Season: {season} {year}")
-    if md: lines.append(f"Date:   {md}")
+    # Helper to format lines nicely with fixed width key
+    def fmt(label, value):
+        return f"{label:<10} {value}"
+
+    if season or year: lines.append(fmt("SEASON:", f"{season} {year}"))
+    if md: lines.append(fmt("DATE:", md))
     
     start = refs.get('tab3_start_entry').get().strip() if refs.get('tab3_start_entry') else ""
     end = refs.get('tab3_end_entry').get().strip() if refs.get('tab3_end_entry') else ""
-    if start: lines.append(f"Time:   {start} - {end}")
+    if start: lines.append(fmt("TIME:", f"{start} - {end}"))
     
     venue = refs.get('tab3_venue_opt').get() if refs.get('tab3_venue_opt') else ""
-    if venue and venue != "Select": lines.append(f"Venue:  {venue}")
+    if venue and venue != "Select": lines.append(fmt("VENUE:", venue))
     
     t1 = refs.get('tab3_team1_opt').get() if refs.get('tab3_team1_opt') else ""
     t2 = refs.get('tab3_team2_opt').get() if refs.get('tab3_team2_opt') else ""
     
+    matchup_text = ""
     if t1 and t1 != "Select" and t2 and t2 != "Select":
-        lines.append(f"\n{t1} vs {t2}")
+        # Add some visual separation for the matchup
+        matchup_text = f"\n\n{t1}\n      VS\n{t2}"
         
+    final_text = "\n".join(lines) + matchup_text
+    
     lbl = refs.get('game_preview_label') or refs.get('game_preview')
-    if lbl: lbl.configure(text="\n".join(lines) if lines else "Fill details to preview...")
+    if lbl: 
+        # Increase size and weight, use clearer text
+        lbl.configure(
+            text=final_text if final_text.strip() else "Fill details to preview...",
+            font=ctk.CTkFont(family="Arial", size=20, weight="bold")
+        )
 
 def _is_date_within_season(parsed_date, season, year_val):
+    """
+    Validates if the parsed_date is within the allowed range for the selected season.
+    Returns: (bool, error_message)
+    """
     if not season or season == "Select": return True, ""
-    tries = []
+    
+    valid_ranges_info = []
+
+    # Check current year and previous year (to account for seasons spanning across years)
     for y in (year_val, year_val - 1):
         s_obj = Season()
         start, end = s_obj.get_range(season, y)
         if start and end:
-            tries.append((start, end))
-            if start <= parsed_date <= end: return True, ""
-    return False, f"Date not in {season} window."
+            # Check if date is valid
+            if start <= parsed_date <= end: 
+                return True, ""
+            
+            # Format readable string for error message (WITHOUT YEAR)
+            # e.g., "Oct 17 -> Apr 16"
+            range_str = f"{start.strftime('%b %d')} -> {end.strftime('%b %d')}"
+            
+            # Prevent duplicate ranges from appearing (since day/month are constant across years)
+            if range_str not in valid_ranges_info:
+                valid_ranges_info.append(range_str)
+
+    if valid_ranges_info:
+        msg_details = "\nOR\n".join(valid_ranges_info)
+        msg = f"The date {parsed_date} is not within the '{season}' window.\n\nAllowed Dates:\n{msg_details}"
+    else:
+        msg = f"Date not in {season} window (could not calculate ranges)."
+        
+    return False, msg
 
 def schedule_game():
     # 1. Gather Inputs
