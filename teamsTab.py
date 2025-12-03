@@ -118,7 +118,7 @@ def show_team_players(team_name, players_frame):
     header_row = ctk.CTkFrame(players_frame, fg_color="#222222")
     header_row.pack(fill="x", padx=12, pady=(6,2))
     ctk.CTkLabel(header_row, text="Player", anchor="w").pack(side="left", padx=(6,0))
-    ctk.CTkLabel(header_row, text="Jersey", anchor="e").pack(side="right", padx=(0,26))
+    ctk.CTkLabel(header_row, text="Actions", anchor="e").pack(side="right", padx=(0,26))
 
     # --- Scrollable Area for Players ---
     scroll_area = ctk.CTkScrollableFrame(players_frame, fg_color="transparent")
