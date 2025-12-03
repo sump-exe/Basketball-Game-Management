@@ -197,19 +197,20 @@ def refresh_scheduled_games_table(table_frame):
             
             ctk.CTkButton(row, text="View", width=60, command=lambda g=game, i=idx_in_group: show_game_details(i, g)).grid(row=0, column=7, padx=4)
             
-            # Edit button removed here
-            
-            # Delete button moved to column 8
-            ctk.CTkButton(row, text="Delete", width=60, fg_color="#F44336", command=lambda i=idx_in_group: delete_scheduled_game(i)).grid(row=0, column=8, padx=4)
+            # FIXED: Pass game['id'] instead of index
+            ctk.CTkButton(row, text="Delete", width=60, fg_color="#F44336", 
+                          command=lambda gid=game['id']: delete_scheduled_game(gid)).grid(row=0, column=8, padx=4)
 
-def delete_scheduled_game(index):
-    src_games = _fetch_games_from_db_direct()
-    if index < 0 or index >= len(src_games): return
+def delete_scheduled_game(game_id):
+    # FIXED: Accept game_id and delete directly without list indexing
     if messagebox.askyesno("Delete", "Delete this game?"):
         sm = ScheduleManager()
-        sm.deleteGame(src_games[index]['id'])
-        if refs.get('scheduled_games_table'):
-            refresh_scheduled_games_table(refs['scheduled_games_table'])
+        try:
+            sm.deleteGame(game_id)
+            if refs.get('scheduled_games_table'):
+                refresh_scheduled_games_table(refs['scheduled_games_table'])
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not delete game: {e}")
 
 def _get_scheduled_games_source():
     try:
